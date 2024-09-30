@@ -1,0 +1,27 @@
+# ┌────────────────────────────────────────────────────────┐
+# │                                                        │
+# │                   칭호북 사운드 설정                      │
+# │                                                        │
+# └────────────────────────────────────────────────────────┘
+
+#칭호 플러그인에 나오는 소리를 설정할 수 있는 파일입니다.
+#모든 소리는 정확한 영어로 입력 해야 하며, 그렇지 않을시 기본값으로 적용됩니다.
+
+#자신이 원하는 사운드를 키고 끌 수 있습니다.
+sound_switch:
+  title_get_sound: true                                   #칭호북 인벤 지급시 나오는 소리
+  title_add_sound: true                                   #칭호 등록시 나오는 소리
+  title_select_sound: true                                #칭호 장착시 나오는 소리
+  title_unselect_sound: true                              #칭호 해제시 나오는 소리
+
+#칭호북를 인벤토리에 지급할때 나오는 소리를 설정합니다.(기본값 : ENTITY_PLAYER_LEVELUP)
+title_get_sound: "ENTITY_PLAYER_LEVELUP"
+
+#칭호를 등록할 때 나오는 소리를 설정합니다.(기본값 : UI_TOAST_CHALLENGE_COMPLETE)
+title_add_sound: "UI_TOAST_CHALLENGE_COMPLETE"
+
+# 칭호를 장착할 때 나오는 소리를 설정합니다. (기본값: ENTITY_VILLAGER_YES)
+title_select_sound: "ENTITY_VILLAGER_YES"
+
+# 칭호를 장착 해제할 때 나오는 소리를 설정합니다. (기본값 : ENTITY_VILLAGER_NO)
+title_unselect_sound: "ENTITY_VILLAGER_NO"
