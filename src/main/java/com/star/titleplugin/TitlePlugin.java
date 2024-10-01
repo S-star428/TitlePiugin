@@ -240,8 +240,8 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         admin.openInventory(inv);
     }
 
-    private int getValidGuiRows() {
-        int guiRows = getConfig().getInt("gui_row", 3);
+    private int getValidGuiRows() {             //칭호 GUI 줄 개수 설정
+        int guiRows = getConfig().getInt("gui_row", 3);         //config에서 줄 개수 받아옴
         if (guiRows < 1 || guiRows > 6) {
             guiRows = 3;
         }
@@ -317,25 +317,10 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 // 칭호 획득 시 소리 재생
                 playSound(player, "title_add_sound", "UI_TOAST_CHALLENGE_COMPLETE");
 
-                openTitleGUI(player); // Automatically open the title GUI after getting a new title
+                openTitleGUI(player);
             }
         }
     }
-
-//    @EventHandler(priority = EventPriority.HIGHEST)
-//    public void onPlayerChat(AsyncPlayerChatEvent event) {
-//        Player player = event.getPlayer();
-//        UUID playerId = player.getUniqueId();
-//        String activeTitle = activeTitles.get(playerId);
-//
-//        event.setCancelled(true);
-//        if (activeTitle != null) {
-//            String format = ChatColor.translateAlternateColorCodes('&', activeTitle + " " + player.getName() + ChatColor.RESET + " : " + event.getMessage());
-//            Bukkit.broadcastMessage(format);
-//        } else {
-//            Bukkit.broadcastMessage(player.getName() + ": " + event.getMessage());
-//        }
-//    }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
@@ -343,9 +328,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         UUID playerId = player.getUniqueId();
         String activeTitle = activeTitles.get(playerId);
 
-//        event.setCancelled(true);
-//        String format = ChatColor.translateAlternateColorCodes('&', player.getName() + ChatColor.RESET + " : " + event.getMessage());
-//        Bukkit.broadcastMessage(format);
+
         if (activeTitle != null) {
             event.setFormat(activeTitle + " " + player.getName() + " : " + event.getMessage());
         }else{
@@ -353,27 +336,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         }
 
     }
-//    @EventHandler(priority = EventPriority.HIGHEST)
-//    public void onPlayerChat(AsyncPlayerChatEvent event) {
-//        Player player = event.getPlayer();
-//        UUID playerId = player.getUniqueId();
-//        String activeTitle = activeTitles.get(playerId);
-//
-//        if (!event.getMessage().startsWith("/")) {
-//            event.setCancelled(true);
-//
-//            String format;
-//            if (activeTitle != null) {
-//                format = ChatColor.translateAlternateColorCodes('&', activeTitle + " " + player.getName() + ChatColor.RESET + " : " + event.getMessage());
-//            } else {
-//                format = player.getName() + ": " + event.getMessage();
-//                event.setFormat(format);
-//            }
-//            Bukkit.broadcastMessage(format);
-//        } else {
-//            event.setCancelled(true);
-//        }
-//    }
+
 
 
 
@@ -408,7 +371,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
                 player.closeInventory();
                 updatePlayerDisplayName(player);
-                openTitleGUI(player); // Update the GUI to show the active title status
+                openTitleGUI(player);
             }
         } else if (event.getView().getTitle().startsWith("칭호 삭제 - ")) {
             event.setCancelled(true);
