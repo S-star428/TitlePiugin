@@ -5,3 +5,5 @@
 <p> You can also use a dedicated placeholder as a placeholder api plugin.</p>
 
 <p> %star_title% This placeholder can be used to show you the title I have fitted.</p>
+
+<h1 align="center"> 🛠 Developer : Star 🛠 </h1>
