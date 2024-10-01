@@ -18,6 +18,7 @@ gui_row: 3
 #기본 칭호(서버에 처음 들어올때 적용되는 칭호, 빈칸일 시 칭호 없음)
 default_prefix: ""
 
+#칭호북 아이템 설정
 Title_book:
   type: BOOK
   name: "prefix"
