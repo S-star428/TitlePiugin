@@ -36,7 +36,7 @@ public class TitlePlaceholderExpansion extends PlaceholderExpansion {
 
     @Override
     public boolean persist() {
-        return true; // 이 확장이 서버가 재시작되어도 계속 유지되도록 설정
+        return true; //서버가 재시작되어도 계속 유지되도록 설정
     }
 
     @Override

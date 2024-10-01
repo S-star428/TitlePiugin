@@ -1,7 +1,7 @@
-S - TitlePiugin
+<h1 align="center"> S - TitlePiugin </h1>
 
-This plugin is a plugin that sets up the Minecraft title.
+<p align="left"> This plugin is a plugin that sets up the Minecraft title. </p>
 
-You can also use a dedicated placeholder as a placeholder api plug-in.
+<p> You can also use a dedicated placeholder as a placeholder api plugin.</p>
 
-%star_title% This placeholder can be used to show you the title I have fitted.
+<p> %star_title% This placeholder can be used to show you the title I have fitted.</p>
