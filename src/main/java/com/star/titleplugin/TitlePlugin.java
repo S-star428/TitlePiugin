@@ -25,6 +25,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.Sound;
 import me.clip.placeholderapi.PlaceholderAPI;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.io.File;
 import java.io.IOException;
@@ -337,9 +339,6 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     }
 
-
-
-
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         Player player = (Player) event.getWhoClicked();
@@ -388,7 +387,8 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                     if (titles != null && titles.remove(title)) {
                         Player target = Bukkit.getPlayer(targetId);
                         if (target != null) {
-                            if (activeTitles.get(targetId).equals(title)) {
+                            // 추가된 null 체크
+                            if (title.equals(activeTitles.get(targetId))) {
                                 activeTitles.remove(targetId);
                                 updatePlayerDisplayName(target);
                             }
@@ -430,6 +430,28 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     private void updatePlayerDisplayName(Player player) {
         UUID playerId = player.getUniqueId();
         String activeTitle = activeTitles.get(playerId);
+
+        Scoreboard scoreboard = player.getScoreboard();
+        if (scoreboard == null) {
+            scoreboard = Bukkit.getScoreboardManager().getNewScoreboard();
+            player.setScoreboard(scoreboard);
+        }
+        Team team = scoreboard.getTeam(player.getName());
+        if (team == null) {
+            team = scoreboard.registerNewTeam(player.getName());
+        }
+
+        // 칭호가 있으면 팀의 접두사로 설정
+        if (activeTitle != null && !activeTitle.isEmpty()) {
+            team.setPrefix(ChatColor.translateAlternateColorCodes('&', activeTitle + " "));
+        } else {
+            team.setPrefix("");  // 칭호가 없으면 접두사를 비움
+        }
+
+        // 플레이어를 팀에 추가하여 닉네임 옆에 칭호 표시
+        team.addEntry(player.getName());
+        player.setPlayerListName(team.getPrefix() + player.getName());  // 탭 목록에 표시되는 이름 설정
+
 
         if (activeTitle != null && !activeTitle.isEmpty()) {
             // 칭호가 있을 때는 칭호와 닉네임을 함께 표시
