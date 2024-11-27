@@ -91,17 +91,26 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
         for (String key : titlesConfig.getKeys(false)) {
             UUID playerId = UUID.fromString(key);
+            String nickname = titlesConfig.getString(key + ".nickname", "UnknownPlayer");
             List<String> titles = titlesConfig.getStringList(key + ".titles");
             String activeTitle = titlesConfig.getString(key + ".activeTitle", null);
+
+            // 메모리에 데이터 저장
             playerTitles.put(playerId, titles);
             activeTitles.put(playerId, activeTitle);
         }
     }
 
+
     private void saveTitles() {
         for (UUID playerId : playerTitles.keySet()) {
-            titlesConfig.set(playerId.toString() + ".titles", playerTitles.get(playerId));
-            titlesConfig.set(playerId.toString() + ".activeTitle", activeTitles.get(playerId));
+            Player player = Bukkit.getPlayer(playerId); // UUID로 플레이어 가져오기
+            if (player != null) {
+                String nickname = player.getName(); // 닉네임 가져오기
+                titlesConfig.set(playerId.toString() + ".nickname", nickname); // 닉네임 저장
+                titlesConfig.set(playerId.toString() + ".titles", playerTitles.get(playerId));
+                titlesConfig.set(playerId.toString() + ".activeTitle", activeTitles.get(playerId));
+            }
         }
 
         try {
@@ -110,6 +119,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             e.printStackTrace();
         }
     }
+
 
     private void loadSoundConfig() {
         soundFile = new File(getDataFolder(), "sound.yml");
@@ -301,28 +311,44 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
         if (item != null && item.getType() == Material.getMaterial(getConfig().getString("Title_book.type", "BOOK"))) {
             ItemMeta meta = item.getItemMeta();
-            if (meta.getPersistentDataContainer().has(new NamespacedKey(this, TITLE_BOOK_METADATA), PersistentDataType.STRING)) {
+            if (meta != null && meta.getPersistentDataContainer().has(new NamespacedKey(this, TITLE_BOOK_METADATA), PersistentDataType.STRING)) {
                 String fullName = meta.getDisplayName();
                 String title = extractPrefix(fullName);
                 UUID playerId = player.getUniqueId();
 
+                // 이미 보유한 칭호인지 확인
                 if (playerTitles.getOrDefault(playerId, new ArrayList<>()).contains(title)) {
                     player.sendMessage(ChatColor.RED + "이미 보유한 칭호입니다: " + title);
                     return;
                 }
 
+                // 플레이어의 칭호 목록에 추가
                 playerTitles.computeIfAbsent(playerId, k -> new ArrayList<>()).add(title);
                 String message = getMessageWithPrefix("add_Title_message", "칭호를 획득했습니다: prefix", title);
                 player.sendMessage(message);
-                player.getInventory().remove(item);
+
+                // 칭호북 한 개만 제거
+                ItemStack[] contents = player.getInventory().getContents();
+                for (int i = 0; i < contents.length; i++) {
+                    if (contents[i] != null && contents[i].isSimilar(item)) {
+                        if (contents[i].getAmount() > 1) {
+                            contents[i].setAmount(contents[i].getAmount() - 1);
+                        } else {
+                            player.getInventory().setItem(i, null);
+                        }
+                        break;
+                    }
+                }
 
                 // 칭호 획득 시 소리 재생
                 playSound(player, "title_add_sound", "UI_TOAST_CHALLENGE_COMPLETE");
 
+                // 칭호 GUI 열기
                 openTitleGUI(player);
             }
         }
     }
+
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
@@ -332,7 +358,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
 
         if (activeTitle != null) {
-            event.setFormat(activeTitle + " " + player.getName() + " : " + event.getMessage());
+            event.setFormat(activeTitle + " " + player.getName() + " : " + ChatColor.WHITE + event.getMessage());
         }else{
             event.setFormat(player.getName() + " : " + event.getMessage());
         }
@@ -410,16 +436,24 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
+        String currentNickname = player.getName();
 
+        // 데이터가 없으면 추가
         if (!playerTitles.containsKey(playerId)) {
-            String defaultPrefix = getConfig().getString("default_prefix", "");
-            if (!defaultPrefix.isEmpty()) {
-                playerTitles.computeIfAbsent(playerId, k -> new ArrayList<>()).add(defaultPrefix);
-                activeTitles.put(playerId, defaultPrefix);
-            }
+            playerTitles.put(playerId, new ArrayList<>());
         }
+
+        // 닉네임이 변경되었는지 확인
+        String storedNickname = titlesConfig.getString(playerId.toString() + ".nickname", "");
+        if (!storedNickname.equals(currentNickname)) {
+            titlesConfig.set(playerId.toString() + ".nickname", currentNickname); // 닉네임 업데이트
+            saveTitles(); // 변경된 닉네임 저장
+            getLogger().info("[S-Title] 플레이어의 닉네임이 업데이트되었습니다: " + storedNickname + " -> " + currentNickname);
+        }
+
         updatePlayerDisplayName(player);
     }
+
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -506,17 +540,33 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     private void playSound(Player player, String soundKey, String defaultSound) {
         if (soundConfig.getBoolean("sound_switch." + soundKey, true)) {
             String soundName = soundConfig.getString(soundKey, defaultSound);
-            Sound sound;
+            Sound sound = null;
+
             try {
+                // Sound 열거형 값 검증
                 sound = Sound.valueOf(soundName);
-            } catch (IllegalArgumentException e) {
-                sound = Sound.valueOf(defaultSound);
+            } catch (IllegalArgumentException | NullPointerException e) {
+                getLogger().warning("[S-Title] 잘못된 사운드 이름: " + soundName + ". 기본값(" + defaultSound + ")을 사용합니다.");
+                try {
+                    sound = Sound.valueOf(defaultSound);
+                } catch (IllegalArgumentException ex) {
+                    getLogger().severe("[S-Title] 기본값으로 설정된 사운드도 유효하지 않습니다: " + defaultSound);
+                    return; // 사운드가 유효하지 않으면 중단
+                }
             }
-            player.playSound(player.getLocation(), sound, 1.0f, 1.0f);
+
+            // 유효한 사운드 값이 있을 경우에만 재생
+            if (sound != null) {
+                player.playSound(player.getLocation(), sound, 1.0f, 1.0f);
+            }
         }
     }
-
     public String getActiveTitle(UUID playerId) {
         return activeTitles.get(playerId);
+    }
+
+    // 특정 UUID로 닉네임 가져오기
+    public String getNickname(UUID playerId) {
+        return titlesConfig.getString(playerId.toString() + ".nickname", "UnknownPlayer");
     }
 }
