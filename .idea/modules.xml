@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/S-Title.iml" filepath="$PROJECT_DIR$/S-Title.iml" />
       <module fileurl="file://$PROJECT_DIR$/TitlePiugin.iml" filepath="$PROJECT_DIR$/TitlePiugin.iml" />
     </modules>
   </component>

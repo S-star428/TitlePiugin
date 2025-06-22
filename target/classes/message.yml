@@ -5,16 +5,40 @@
 #──────────────────────────────────────────────────────────────────────────
 
 #칭호 플러그인의 출력 메세지를 설정 할 수 있는 부분입니다.
-#prefix가 칭호입니다.
-#player가 플레이어 닉네임입니다.
+#{prefix}가 칭호입니다.
+#{player}가 플레이어 닉네임입니다.
+#이 설정은 플레이어가 칭호를 획득, 장착, 해제, 삭제할 때 출력되는 메세지입니다.
+#그라데이션 칭호를 설정할때는 <색깔 영어이름> 형식으로 입력합니다.
+#색깔 영어이름은 아래와 같습니다.
+# black, dark_blue, dark_green, dark_aqua, dark_red, dark_purple, gold, gray, dark_gray, blue, green, aqua, red, light_purple, yellow, white
+#예 : <dark_red> 이런 형식으로 입력합니다.
 
-#칭호북을 인벤토리에 지급할때 출력되는 메세지
-give_titleBook_Message: "칭호북이 인벤토리에 추가되었습니다: prefix"
+#일반색 칭호북을 인벤토리에 지급할때 출력되는 메세지
+give_titleBook_Message: "칭호북이 인벤토리에 추가되었습니다: {prefix}"
 
-add_Title_message: "칭호를 획득했습니다: prefix"
+#그라데이션 칭호북을 인벤토리에 지급할때 출력되는 메세지
+give_Gradient_TitleBook_Message: "<yellow>칭호북이 인벤토리에 추가되었습니다: {prefix}"
 
-equip_Title_message: "칭호가 장착되었습니다: prefix"
+#칭호북을 우클릭으로 획득했을때 출력되는 메세지
+add_Title_message: "&e칭호를 획득했습니다: {prefix}"
 
-unequip_Title_message: "칭호가 해제되었습니다: prefix"
+#그라데이션 칭호북을 우클릭으로 획득했을때 출력되는 메세지
+add_Gradient_Title_message: "<yellow>칭호를 획득했습니다: {prefix}"
 
-delete_Title_message: "player님의 칭호가 삭제되었습니다: prefix"
+#칭호를 장착했을때 출력되는 메세지
+equip_Title_message: "칭호가 장착되었습니다: {prefix}"
+
+#칭호를 장착 해제했을때 출력되는 메세지
+unequip_Title_message: "칭호가 해제되었습니다: {prefix}"
+
+#칭호를 삭제했을때 출력되는 메세지
+delete_Title_message: "&c{player}님의 칭호가 삭제되었습니다: {prefix}"
+
+#칭호를 삭제했을때 출력되는 메세지
+delete_Gradient_Title_message: "<red>{player}님의 칭호가 삭제되었습니다: {prefix}"
+
+#칭호북을 우클릭으로 획득했을때 출력되는 메세지(그라데이션 칭호)
+already_have_Title_message: "&c이미 보유한 칭호입니다: {prefix}"
+
+#그라데이션 칭호북을 우클릭으로 획득했을때 출력되는 메세지(그라데이션 칭호)
+already_have_Gradient_Title_message: "<red>이미 보유한 칭호입니다: {prefix}"

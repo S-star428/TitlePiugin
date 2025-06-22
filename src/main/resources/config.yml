@@ -21,9 +21,16 @@ default_prefix: ""
 #칭호북 아이템 설정
 Title_book:
   type: BOOK
-  name: "prefix"
+  name: "{prefix}"
   lore:
     - "&f우클릭으로 흭득가능합니다."
+
+Gradient_Title_book:
+  type: BOOK
+  name: "{prefix}"
+  lore:
+    - "<yellow>우클릭으로 흭득가능합니다."
+    - "<white>그라데이션 칭호입니다."
 
 #칭호 GUI아이템 설정
 Title_book_Icon:

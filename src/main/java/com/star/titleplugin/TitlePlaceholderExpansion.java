@@ -48,11 +48,29 @@ public class TitlePlaceholderExpansion extends PlaceholderExpansion {
         // 플레이스홀더가 %star_title%인 경우
         if (identifier.equals("title")) {
             UUID playerId = player.getUniqueId();
-            String activeTitle = plugin.getActiveTitle(playerId);
+            TitleData activeTitleData = plugin.getActiveTitle(playerId);
 
-            return (activeTitle != null && !activeTitle.isEmpty()) ? activeTitle : "장착중인 칭호가 없습니다";
+            if (activeTitleData == null || activeTitleData.getDisplay() == null) {
+                return "장착중인 칭호 없음";
+            }
+
+            String display = activeTitleData.getDisplay();
+
+            // MiniMessage 형식 (<gradient:...>)이면 색 코드 문자열로 변환
+            if (display.contains("<") && display.contains(">")) {
+                return net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection()
+                        .serialize(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(display));
+            }
+
+            // & 색코드인 경우
+            if (display.contains("&") || display.contains("§")) {
+                return org.bukkit.ChatColor.translateAlternateColorCodes('&', display);
+            }
+
+            return display;
         }
 
-        return null; // 등록된 플레이스홀더가 없을 경우
+        return null; // 등록되지 않은 식별자
     }
+
 }
