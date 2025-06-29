@@ -45,32 +45,45 @@ public class TitlePlaceholderExpansion extends PlaceholderExpansion {
             return "";
         }
 
-        // 플레이스홀더가 %star_title%인 경우
-        if (identifier.equals("title")) {
-            UUID playerId = player.getUniqueId();
-            TitleData activeTitleData = plugin.getActiveTitle(playerId);
+        UUID playerId = player.getUniqueId();
+        TitleData activeTitleData = plugin.getActiveTitle(playerId);
 
+        // 머리 위 네임태그 전용 플레이스홀더: %star_title_nametag%
+        if (identifier.equals("title_nametag")) {
             if (activeTitleData == null || activeTitleData.getDisplay() == null) {
-                return "장착중인 칭호 없음";
+                return ""; // 칭호 없으면 빈 문자열
             }
-
             String display = activeTitleData.getDisplay();
-
-            // MiniMessage 형식 (<gradient:...>)이면 색 코드 문자열로 변환
+            // MiniMessage (<gradient:...>)
             if (display.contains("<") && display.contains(">")) {
                 return net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection()
                         .serialize(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(display));
             }
-
-            // & 색코드인 경우
+            // &색코드
             if (display.contains("&") || display.contains("§")) {
                 return org.bukkit.ChatColor.translateAlternateColorCodes('&', display);
             }
+            return display;
+        }
 
+        // 스코어보드/GUI/채팅 안내용: %star_title% 또는 %star_title_scoreboard%
+        if (identifier.equals("title") || identifier.equals("title_scoreboard")) {
+            if (activeTitleData == null || activeTitleData.getDisplay() == null) {
+                return "장착중인 칭호 없음";
+            }
+            String display = activeTitleData.getDisplay();
+            // MiniMessage (<gradient:...>)
+            if (display.contains("<") && display.contains(">")) {
+                return net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection()
+                        .serialize(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(display));
+            }
+            // &색코드
+            if (display.contains("&") || display.contains("§")) {
+                return org.bukkit.ChatColor.translateAlternateColorCodes('&', display);
+            }
             return display;
         }
 
         return null; // 등록되지 않은 식별자
     }
-
 }

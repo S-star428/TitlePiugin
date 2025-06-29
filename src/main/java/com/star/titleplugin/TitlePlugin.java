@@ -29,6 +29,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.io.File;
 import java.io.IOException;
@@ -955,12 +957,12 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         activeTitles.remove(player.getUniqueId());
         removeAllPotionEffects(player);
 
-        String raw = messageConfig.getString("unequip_Title_message", "&c칭호가 해제되었습니다: {prefix}");
-        raw = addTitlePrefix(raw);
+        String raw = messageConfig.getString("unequip_Title_message", "칭호가 해제되었습니다: {prefix}");
         String msgMini = MiniMessage.miniMessage().serialize(
                 LegacyComponentSerializer.legacyAmpersand().deserialize(raw)
         );
         String finalMsg = msgMini.replace("{prefix}", title.getDisplay());
+        finalMsg = addTitlePrefix(finalMsg);
         player.sendMessage(MiniMessage.miniMessage().deserialize(finalMsg));
 
         playSound(player, "title_unselect_sound", "ENTITY_VILLAGER_NO");

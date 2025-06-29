@@ -1,20 +1,35 @@
 <h1 align="center"> S - TitlePiugin </h1>
 
-<p align="left"> This plugin is a plugin that sets up the Minecraft title. </p>
+<p align="left"> This plugin is a Minecraft plugin for setting player titles. </p>
 
-<p> You can also use a dedicated placeholder as a placeholder api plugin.</p>
+<p> You can also use custom placeholders with the Placeholder API plugin. </p>
 
-<p> %star_title% This placeholder can be used to show you the title I have fitted.</p>
+<p> The %star_title% placeholder can be used to display your set title on the scoreboard. </p>
 
-<p> Operating versions: 1.20.1 to 1.21.3 </p>
+<p> The %star_title_nametag% placeholder shows the equipped title on the name tag. </p>
 
-<p>It may not work in versions below that. Verified version: 1.20.1</p>
+<p> Supported versions: 1.20.1 ~ 1.21.3 </p> <p> It may not work on lower versions. Verified version: 1.20.1 </p>
 
-<h1 align="center"> 🛠 Developer : Star 🛠 </h1>
+<h2> Update Log </h2>
 
-<h2> Updata log </h2>
+<p> v0.2: Updated to work with version 1.21.3. </p>
 
-<p> v0.2 : It has been modified to work with version 1.21.3. </p>
+<p> v0.3: Modified to store both player UUID and player nickname in title.yml for easier identification. </p>
+<p> v0.4: Gradient titles can now be created. Properly applied to scoreboard, chat, and tab list. </p>
+<p>Title storage method has been changed.
+Titles now appear next to the player's name above their head.</p>
+<p>More customizable messages and a wider variety of sounds are now available.</p>
+<p>To display the title next to the name above the player's head, you must use the TAB plugin and LuckPerms plugin.</p>
+
+<p> v0.5: Added a name tag-specific placeholder. </p>
+
+<h1> How to display titles next to the name above the player’s head </h1>
+<p>First, create a group using the TAB plugin, then add a tagprefix to that group along with the title placeholder.</p>
+default:<br>
+  customtabname: '%player%'<br>
+  customtagname: '%player%'<br>
+  tagprefix: '%star_title% &f'
+
 
 <p>====================================================================</p>
 
@@ -22,9 +37,11 @@
 
 <p> 전용 플레이스홀더를 Placeholder API 플러그인으로 사용할 수도 있습니다. </p>
 
-<p> %star_title% 이 플레이스홀더는 내가 설정한 타이틀을 보여주는 데 사용할 수 있습니다. </p> 
+<p> %star_title% 이 플레이스홀더는 스코어보드에 내가 설정한 타이틀을 보여주는 데 사용할 수 있습니다. </p> 
 
- <p> 지원되는 버전: 1.20.1 ~ 1.21.3 </p> <p> 그 이하 버전에서는 작동하지 않을 수 있습니다. 검증된 버전: 1.20.1 </p> 
+<p> %star_title_nametag% 이 플레이스홀더는 네임태그에 내가 장착한 칭호를 보여줍니다. </p>
+
+<p> 지원되는 버전: 1.20.1 ~ 1.21.3 </p> <p> 그 이하 버전에서는 작동하지 않을 수 있습니다. 검증된 버전: 1.20.1 </p> 
 
 <h2> 업데이트 로그 </h2>
 
@@ -35,3 +52,13 @@
 칭호 저장 방식이 변경되었습니다.
 플레이어의 머리 위의 닉네임 옆에 칭호가 추가되어 나옵니다.</p>
 <p>수정가능한 메세지, 소리가 더 다양해졌습니다.</p>
+<p>플레이어 머리 위의 닉네임 옆에도 칭호를 나오게 하고 싶으면 탭 플러그인, 럭펌 플러그인이 필수로 필요합니다.</p>
+
+<p> v0.5: 네임태그 전용 플레이스 홀더가 추가되었습니다.</p>
+
+<h1> 플레이어의 머리 위의 닉네임 옆에도 칭호를 나오게 하는 방법</h1>
+<p>먼저 탭 플러그인으로 그룹을 하나 만든 뒤 그 그룹의 tagprefix를 추가하고 그 옆에 칭호 플레이스 홀더를 추가합니다.</p>
+default:<br>
+  customtabname: '%player%'<br>
+  customtagname: '%player%'<br>
+  tagprefix: '%star_title% &f'
