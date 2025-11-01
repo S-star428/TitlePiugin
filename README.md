@@ -62,3 +62,5 @@ default:<br>
   customtabname: '%player%'<br>
   customtagname: '%player%'<br>
   tagprefix: '%star_title% &f'
+
+<h1> 주의사항 : 네임태그 플레이스홀더랑 스코어보드 플레이스 홀더는 반드시 따로 사용하세요 </h1>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <project name="maven-antrun-" default="main"  >
 <target name="main">
-  <copy file="C:\file\java project\TitlePiugin\target/S-Title-0.4.jar" tofile="C:\minecraft\plugins\S-Title-0.4.jar" overwrite="true"/>
+  <copy file="C:\file\java project\TitlePiugin\target/S-Title-0.5.jar" tofile="C:\minecraft\plugins\S-Title-0.5.jar" overwrite="true"/>
 </target>
 </project>

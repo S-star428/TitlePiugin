@@ -236,72 +236,111 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         if (sender instanceof Player) {
             Player player = (Player) sender;
 
-            if (args.length == 0) {
-                player.sendMessage(component1);
-                player.sendMessage(Component.text("/칭호 열기 : 자신의 칭호창을 엽니다."));
-                player.sendMessage(Component.text("/칭호 제작 [원하는 칭호] : 일반 칭호 제작"));
-                player.sendMessage(Component.text("/칭호 제작 gradient <HEX시작색> <HEX끝색> <텍스트> : 그라데이션 칭호 제작"));
-                player.sendMessage(Component.text("/칭호 삭제 [플레이어 닉네임] : 해당 플레이어의 칭호창을 열어 칭호를 삭제"));
-                player.sendMessage(Component.text("/칭호 리로드 : 설정 파일을 리로드합니다."));
-                player.sendMessage(Component.text("================================="));
+            // ----- 여기서부터 명령어별 퍼미션 체크 -----
+            // /칭호 열기: 오피가 아니어도 누구나 사용 가능
+            if (args.length > 0 && args[0].equalsIgnoreCase("열기")) {
+                openTitleGUI(player);
                 return true;
             }
 
-            switch (args[0]) {
-                case "열기":
-                    openTitleGUI(player);
-                    break;
-                case "제작":
-                    // 그라데이션 칭호: /칭호 제작 gradient #ff0000 #00ff00 텍스트
-                    if (args.length >= 5 && args[1].equalsIgnoreCase("gradient")) {
-                        String startHex = args[2];
-                        String endHex = args[3];
-                        String text = String.join(" ", Arrays.copyOfRange(args, 4, args.length));
-                        giveGradientTitleBook(player, text, startHex, endHex);
-                        break;
-                    }
-                    // /칭호 제작 [원하는 칭호]
-                    if (args.length >= 2) {
-                        String text = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
-// colorCode는 상황에 맞게 추출(예: args[1]이 colorCode면 분리해서 사용)
-                        String colorCode = "&f"; // 필요시 파싱
-                        String display = colorCode + text;
-                        TitleData title = new TitleData(text, display, TitleData.Type.NORMAL);
+            // /칭호 제작: 칭호 제작 퍼미션 필요
+            if (args.length > 0 && args[0].equalsIgnoreCase("제작")) {
+                if (!player.hasPermission("titleplugin.make")) {
+                    Component sendcom1 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
+                    player.sendMessage(sendcom1);
+                    return true;
+                }
+                // 그라데이션 칭호: /칭호 제작 gradient #ff0000 #00ff00 텍스트
+                if (args.length >= 5 && args[1].equalsIgnoreCase("gradient")) {
+                    String startHex = args[2];
+                    String endHex = args[3];
+                    String text = String.join(" ", Arrays.copyOfRange(args, 4, args.length));
+                    giveGradientTitleBook(player, text, startHex, endHex);
+                    return true;
+                }
+                // /칭호 제작 [원하는 칭호]
+                if (args.length >= 2) {
+                    String text = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+                    String colorCode = "&f"; // 필요시 파싱
+                    String display = colorCode + text;
+                    TitleData title = new TitleData(text, display, TitleData.Type.NORMAL);
 
-                        giveNormalTitleBook(player, title);
+                    giveNormalTitleBook(player, title);
+                } else {
+                    player.sendMessage(Component.text("사용법: /칭호 제작 [원하는 칭호]"));
+                }
+                return true;
+            }
+
+            // /칭호 삭제: 칭호 삭제 퍼미션 필요
+            if (args.length > 0 && args[0].equalsIgnoreCase("삭제")) {
+                if (!player.hasPermission("titleplugin.delete")) {
+                    Component sendcom2 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
+                    player.sendMessage(sendcom2);
+                    return true;
+                }
+                if (args.length < 2) {
+                    player.sendMessage(Component.text("사용법: /칭호 삭제 [플레이어닉네임]"));
+                } else {
+                    Player target = Bukkit.getPlayerExact(args[1]);
+                    if (target != null) {
+                        openTitleDeleteGUI(player, target);
                     } else {
-                        player.sendMessage(Component.text("사용법: /칭호 제작 [원하는 칭호]"));
+                        player.sendMessage(Component.text("<red>플레이어를 찾을 수 없습니다."));
                     }
-                    break;
-                case "삭제":
-                    if (args.length < 2) {
-                        player.sendMessage(Component.text("사용법: /칭호 삭제 [플레이어닉네임]"));
-                    } else {
-                        Player target = Bukkit.getPlayerExact(args[1]);
-                        if (target != null) {
-                            openTitleDeleteGUI(player, target);
-                        } else {
-                            player.sendMessage(Component.text("플레이어를 찾을 수 없습니다."));
-                        }
-                    }
-                    break;
-                case "리로드":
-                    reloadConfig();
-                    loadSoundConfig();
-                    loadMessageConfig();
-                    Component Comreload = mm.deserialize(TITLE_PREFIX + "설정, 출력 메세지, 사운드 파일이 리로드되었습니다.");
-                    player.sendMessage(Comreload);
-                    break;
-                case "효과설정":
-                    if (!isHoldingTitleBook(player)) {
-                        player.sendMessage(Component.text("칭호북을 들고 있어야 합니다!").color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                        return true;
-                    }
-                    openEffectGUI(player);
-                    break;
-                default:
-                    player.sendMessage(Component.text("[ Error ] 알 수 없는 명령어입니다.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                    break;
+                }
+                return true;
+            }
+
+            // /칭호 리로드: 리로드 퍼미션 필요
+            if (args.length > 0 && args[0].equalsIgnoreCase("리로드")) {
+                if (!player.hasPermission("titleplugin.reload")) {
+                    Component sendcom3 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
+                    player.sendMessage(sendcom3);
+                    return true;
+                }
+                reloadConfig();
+                loadSoundConfig();
+                loadMessageConfig();
+                Component Comreload = mm.deserialize(TITLE_PREFIX + "설정, 출력 메세지, 사운드 파일이 리로드되었습니다.");
+                player.sendMessage(Comreload);
+                return true;
+            }
+
+            // /칭호 효과설정: 효과설정 퍼미션 필요
+            if (args.length > 0 && args[0].equalsIgnoreCase("효과설정")) {
+                if (!player.hasPermission("titleplugin.effect")) {
+                    Component sendcom4 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
+                    player.sendMessage(sendcom4);
+                    return true;
+                }
+                if (!isHoldingTitleBook(player)) {
+                    player.sendMessage(Component.text("칭호북을 들고 있어야 합니다!").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                    return true;
+                }
+                openEffectGUI(player);
+                return true;
+            }
+
+            if (args.length == 0 && !player.isOp()) {
+                openTitleGUI(player);
+                return true;
+            }
+
+
+            // ----- 위의 명령어에 해당하지 않는 경우 기본 설명 출력 -----
+            if (args.length == 0) {
+                // 오피에게만 도움말 출력
+                if (player.isOp()) {
+                    player.sendMessage(component1);
+                    player.sendMessage(Component.text("/칭호 열기 : 자신의 칭호창을 엽니다."));
+                    player.sendMessage(Component.text("/칭호 제작 [원하는 칭호] : 일반 칭호 제작"));
+                    player.sendMessage(Component.text("/칭호 제작 gradient <HEX시작색> <HEX끝색> <텍스트> : 그라데이션 칭호 제작"));
+                    player.sendMessage(Component.text("/칭호 삭제 [플레이어 닉네임] : 해당 플레이어의 칭호창을 열어 칭호를 삭제"));
+                    player.sendMessage(Component.text("/칭호 리로드 : 설정 파일을 리로드합니다."));
+                    player.sendMessage(Component.text("================================="));
+                    return true;
+                }
             }
         }
         return true;
@@ -454,14 +493,24 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     private void openEffectGUI(Player player) {
         Inventory gui = Bukkit.createInventory(null, 27, "칭호 효과 설정");
 
-        for (String title : titleEffects.keySet()) {
+        for (Map.Entry<String, PotionEffectType> entry : titleEffects.entrySet()) {
+            String effectName = entry.getKey();
+            PotionEffectType effectType = entry.getValue();
+
             ItemStack item = new ItemStack(Material.POTION, 1);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(ChatColor.AQUA + title);
+                meta.setDisplayName(ChatColor.AQUA + effectName);
                 List<String> lore = new ArrayList<>();
                 lore.add(ChatColor.GRAY + "이 효과를 선택하면 칭호북에 적용됩니다.");
                 meta.setLore(lore);
+
+                // NBT에 효과 타입 저장
+                meta.getPersistentDataContainer().set(
+                        new NamespacedKey(this, EFFECT_METADATA),
+                        PersistentDataType.STRING,
+                        effectType.getName()
+                );
                 item.setItemMeta(meta);
             }
             gui.addItem(item);
@@ -679,20 +728,20 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             if (message.equals("-")) {
                 pendingEffects.remove(playerId);
                 pendingEffectLevels.remove(playerId);
-                player.sendMessage(Component.text( TITLE_PREFIX + "효과 설정이 취소되었습니다.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<red>효과 설정이 취소되었습니다."));
                 return;
             }
 
             try {
                 int level = Integer.parseInt(message);
                 if (level < 1 || level > 255) {
-                    player.sendMessage(Component.text(TITLE_PREFIX + "잘못된 값입니다. 1~255 사이의 숫자를 입력하세요.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                    player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<red>잘못된 값입니다. 1~255 사이의 숫자를 입력하세요."));
                     return;
                 }
 
                 ItemStack book = player.getInventory().getItemInMainHand();
                 if (book == null || !book.hasItemMeta()) {
-                    player.sendMessage(Component.text(TITLE_PREFIX + "칭호북을 들고 있어야 합니다!").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                    player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<red>칭호북을 들고 있어야 합니다!"));
                     return;
                 }
 
@@ -704,12 +753,12 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 data.set(new NamespacedKey(this, LEVEL_METADATA), PersistentDataType.INTEGER, level);
                 book.setItemMeta(meta);
 
-                player.sendMessage(Component.text(TITLE_PREFIX + "칭호북에 효과 [" + effectType.getName() + "] (레벨 " + level + ")이 저장되었습니다.").color(net.kyori.adventure.text.format.NamedTextColor.GREEN));
+                player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<green>칭호북에 효과 [" + effectType.getName() + "] (레벨 " + level + ")이 저장되었습니다."));
                 pendingEffects.remove(playerId);
                 pendingEffectLevels.remove(playerId);
 
             } catch (NumberFormatException e) {
-                player.sendMessage(Component.text(TITLE_PREFIX + "숫자를 입력해야 합니다. 다시 입력해주세요.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<red>숫자를 입력해야 합니다. 다시 입력해주세요."));
             }
             return;
         }
@@ -855,6 +904,39 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 //            }
             handleTitleDelete(event, player, item);
         }
+
+
+        else if (inventoryTitle.equals("칭호 효과 설정")) {
+            event.setCancelled(true);
+
+            // 칭호북을 들고 있는지 체크
+            ItemStack mainHand = player.getInventory().getItemInMainHand();
+            if (mainHand == null || !mainHand.hasItemMeta() ||
+                    !mainHand.getItemMeta().getPersistentDataContainer().has(new NamespacedKey(this, TITLE_BOOK_METADATA), PersistentDataType.STRING)) {
+                player.sendMessage(ChatColor.RED + "칭호북을 들고 있어야 효과를 적용할 수 있습니다!");
+                player.closeInventory();
+                return;
+            }
+
+            // 선택된 효과 정보(NBT에서 추출)
+            ItemMeta meta = item.getItemMeta();
+            String effectTypeName = meta.getPersistentDataContainer().get(
+                    new NamespacedKey(this, EFFECT_METADATA), PersistentDataType.STRING);
+
+            if (effectTypeName == null) {
+                player.sendMessage(ChatColor.RED + "효과 정보를 찾을 수 없습니다!");
+                player.closeInventory();
+                return;
+            }
+
+            // (선택) 레벨을 채팅으로 입력받는다면, pendingEffects에 저장 후 안내
+            pendingEffects.put(player.getUniqueId(), PotionEffectType.getByName(effectTypeName));
+            player.closeInventory();
+//            player.sendMessage( Component.text(TITLE_PREFIX + ChatColor.AQUA + "적용할 효과 레벨(1~255)을 채팅으로 입력하세요. '-' 입력시 취소"));
+            player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<aqua>적용할 효과 레벨(1~255)을 채팅으로 입력하세요. '-' 입력시 취소"));
+
+        }
+
     }
     private void handleTitleDelete(InventoryClickEvent event, Player player, ItemStack item) {
         event.setCancelled(true);
@@ -1112,6 +1194,11 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        // 오피가 아니면 탭 컴플리트 결과를 숨김
+        if (sender instanceof Player player && !player.isOp()) {
+            return Collections.emptyList(); // 또는 return null;
+        }
+
         if (command.getName().equalsIgnoreCase("칭호")) {
             List<String> completions = new ArrayList<>();
 
