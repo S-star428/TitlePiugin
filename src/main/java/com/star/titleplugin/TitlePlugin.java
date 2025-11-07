@@ -3,7 +3,11 @@ package com.star.titleplugin;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.bukkit.*;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
@@ -29,8 +33,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scoreboard.Scoreboard;
-import org.bukkit.scoreboard.Team;
 
 import java.io.File;
 import java.io.IOException;
@@ -57,15 +59,27 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     private File messageFile;
     private FileConfiguration messageConfig;
 
+    // === 카탈로그(템플릿) 저장소 ===
+    private final Map<String, TitleTemplate> templates = new LinkedHashMap<>(); // id -> template
+    private File templatesFile;
+    private FileConfiguration templatesConfig;
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        // 선택 옵션
+        getConfig().addDefault("allow_duplicate_gradient_per_user", false);
+        getConfig().addDefault("catalog_gui_row", 6);
+        getConfig().options().copyDefaults(true);
+        saveConfig();
+
         loadSoundConfig();
         loadMessageConfig();
         getServer().getPluginManager().registerEvents(this, this);
-        getCommand("칭호").setExecutor(this);
-        getCommand("칭호").setTabCompleter(this);
+        Objects.requireNonNull(getCommand("칭호")).setExecutor(this);
+        Objects.requireNonNull(getCommand("칭호")).setTabCompleter(this);
         loadTitles();
+        loadTemplates();
         loadEffects();
         startUpdateTask();
         getLogger().info(ChatColor.YELLOW + "[ S - Title ] 플러그인이 활성화 되었습니다.");
@@ -81,28 +95,11 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     @Override
     public void onDisable() {
         saveTitles();
+        saveTemplates();
         getLogger().info(ChatColor.GOLD + "[ S - Title ]" + ChatColor.WHITE + "플러그인이 비활성화 되었습니다.");
     }
 
-    private Component toMiniMessageComponent(String key, String fallback, String prefixRaw) {
-        String msgRaw = messageConfig.getString(key, fallback);
-
-        String parsedPrefix;
-        if (prefixRaw.contains("<") && prefixRaw.contains(">")) {
-            parsedPrefix = prefixRaw;
-        } else if (prefixRaw.contains("&")) {
-            Component legacy = LegacyComponentSerializer.legacyAmpersand().deserialize(prefixRaw);
-            parsedPrefix = MiniMessage.miniMessage().serialize(legacy);
-        } else {
-            parsedPrefix = MiniMessage.miniMessage().serialize(Component.text(prefixRaw));
-        }
-
-        String finalMsg = msgRaw.replace("prefix", parsedPrefix);
-        return MiniMessage.miniMessage().deserialize(finalMsg);
-    }
-
     private String addTitlePrefix(String message) {
-        // 이미 prefix가 있으면 중복 방지 (선택)
         if (message != null && !message.startsWith(TITLE_PREFIX)) {
             return TITLE_PREFIX + message;
         }
@@ -112,11 +109,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     private void loadTitles() {
         titlesFile = new File(getDataFolder(), "titles.yml");
         if (!titlesFile.exists()) {
-            try {
-                titlesFile.createNewFile();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            try { titlesFile.createNewFile(); } catch (IOException e) { e.printStackTrace(); }
         }
         titlesConfig = YamlConfiguration.loadConfiguration(titlesFile);
 
@@ -129,8 +122,9 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                     String name = (String) map.get("name");
                     String display = (String) map.get("display");
                     String typeStr = (String) map.get("type");
+                    String templateId = (String) map.getOrDefault("templateId", null);
                     TitleData.Type type = TitleData.Type.valueOf(typeStr);
-                    titles.add(new TitleData(name, display, type));
+                    titles.add(new TitleData(name, display, type, templateId));
                 }
                 Map<?,?> activeMap = titlesConfig.getConfigurationSection(key + ".activeTitle") != null
                         ? titlesConfig.getConfigurationSection(key + ".activeTitle").getValues(false)
@@ -140,12 +134,12 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                     String name = (String) activeMap.get("name");
                     String display = (String) activeMap.get("display");
                     String typeStr = (String) activeMap.get("type");
+                    String templateId = (String) activeMap.getOrDefault("templateId", null);
                     TitleData.Type type = TitleData.Type.valueOf(typeStr);
-                    activeTitle = new TitleData(name, display, type);
+                    activeTitle = new TitleData(name, display, type, templateId);
                 }
                 playerTitles.put(playerId, titles);
-                if (activeTitle != null)
-                    activeTitles.put(playerId, activeTitle);
+                if (activeTitle != null) activeTitles.put(playerId, activeTitle);
             } catch (IllegalArgumentException e) {
                 getLogger().warning("[S-Title] 잘못된 UUID: " + key);
             }
@@ -160,6 +154,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 map.put("name", title.getName());
                 map.put("display", title.getDisplay());
                 map.put("type", title.getType().name());
+                if (title.getTemplateId() != null) map.put("templateId", title.getTemplateId());
                 titlesList.add(map);
             }
             titlesConfig.set(playerId.toString() + ".titles", titlesList);
@@ -170,6 +165,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 map.put("name", active.getName());
                 map.put("display", active.getDisplay());
                 map.put("type", active.getType().name());
+                if (active.getTemplateId() != null) map.put("templateId", active.getTemplateId());
                 titlesConfig.set(playerId.toString() + ".activeTitle", map);
             } else {
                 titlesConfig.set(playerId.toString() + ".activeTitle", null);
@@ -177,11 +173,113 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             String nickname = Bukkit.getOfflinePlayer(playerId).getName();
             titlesConfig.set(playerId.toString() + ".nickname", nickname != null ? nickname : "UnknownPlayer");
         }
-        try {
-            titlesConfig.save(titlesFile);
-        } catch (IOException e) {
-            e.printStackTrace();
+        try { titlesConfig.save(titlesFile); } catch (IOException e) { e.printStackTrace(); }
+    }
+
+    // === 템플릿 로드/저장 ===
+    private void loadTemplates() {
+        templatesFile = new File(getDataFolder(), "templates.yml");
+        if (!templatesFile.exists()) {
+            try { templatesFile.createNewFile(); } catch (IOException e) { e.printStackTrace(); }
         }
+        templatesConfig = YamlConfiguration.loadConfiguration(templatesFile);
+        templates.clear();
+
+        List<Map<?, ?>> list = templatesConfig.getMapList("templates");
+        if (list != null) {
+            for (Map<?, ?> m : list) {
+                String id = String.valueOf(m.get("id"));
+                String name = String.valueOf(m.get("name"));
+                String display = String.valueOf(m.get("display"));
+                String typeStr = String.valueOf(m.get("type"));
+                if (id == null || id.equals("null")) continue;
+                try {
+                    TitleData.Type type = TitleData.Type.valueOf(typeStr);
+                    TitleTemplate tpl = new TitleTemplate(id, name, display, type);
+                    templates.put(id, tpl);
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private void saveTemplates() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (TitleTemplate tpl : templates.values()) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", tpl.getId());
+            m.put("name", tpl.getName());
+            m.put("display", tpl.getDisplay());
+            m.put("type", tpl.getType().name());
+            list.add(m);
+        }
+        templatesConfig.set("templates", list);
+        try { templatesConfig.save(templatesFile); } catch (IOException e) { e.printStackTrace(); }
+    }
+
+    // 동일 정의 템플릿 검색
+    private TitleTemplate findExistingTemplate(TitleData data) {
+        for (TitleTemplate t : templates.values()) {
+            if (Objects.equals(t.getName(), data.getName())
+                    && Objects.equals(t.getDisplay(), data.getDisplay())
+                    && t.getType() == data.getType()) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    // 자동 ID 사용(기존)
+    private TitleTemplate registerTemplateIfNew(TitleData data) {
+        TitleTemplate existing = findExistingTemplate(data);
+        if (existing != null) return existing;
+        TitleTemplate tpl = TitleTemplate.fromTitleData(data);
+        templates.put(tpl.getId(), tpl);
+        saveTemplates();
+        return tpl;
+    }
+
+    // 사용자 지정 ID 사용(마지막 인자로 받은 id)
+    private TitleTemplate registerTemplateWithId(TitleData data, String desiredId) throws IllegalArgumentException {
+        if (desiredId == null || desiredId.isBlank()) {
+            return registerTemplateIfNew(data);
+        }
+
+        TitleTemplate byId = templates.get(desiredId);
+        if (byId != null) {
+            // 같은 정의면 재사용, 다르면 충돌 에러
+            if (Objects.equals(byId.getName(), data.getName())
+                    && Objects.equals(byId.getDisplay(), data.getDisplay())
+                    && byId.getType() == data.getType()) {
+                return byId;
+            }
+            throw new IllegalArgumentException("이미 존재하는 ID입니다: " + desiredId);
+        }
+
+        // 동일 정의 템플릿이 다른 ID로 이미 있으면 그걸 재사용
+        TitleTemplate existingSame = findExistingTemplate(data);
+        if (existingSame != null) return existingSame;
+
+        // 신규 생성
+        TitleTemplate tpl = TitleTemplate.fromTitleDataWithId(data, desiredId);
+        templates.put(desiredId, tpl);
+        saveTemplates();
+        return tpl;
+    }
+
+    private TitleTemplate findTemplateByKey(String key) {
+        if (templates.containsKey(key)) return templates.get(key); // ID 우선
+        List<TitleTemplate> byName = templates.values().stream()
+                .filter(t -> t.getName().equalsIgnoreCase(key))
+                .collect(Collectors.toList());
+        if (!byName.isEmpty()) return byName.get(0);
+        return null;
+    }
+
+    private boolean matchesTemplate(TitleData d, TitleTemplate t) {
+        if (d.getTemplateId() != null) return d.getTemplateId().equals(t.getId());
+        return d.getName().equalsIgnoreCase(t.getName())
+                && d.getType() == t.getType()
+                && Objects.equals(d.getDisplay(), t.getDisplay());
     }
 
     public TitleData getActiveTitle(UUID playerId) {
@@ -190,211 +288,261 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     private void loadSoundConfig() {
         soundFile = new File(getDataFolder(), "sound.yml");
-        if (!soundFile.exists()) {
-            saveResource("sound.yml", false);
-        }
+        if (!soundFile.exists()) { saveResource("sound.yml", false); }
         soundConfig = YamlConfiguration.loadConfiguration(soundFile);
     }
 
     private void loadMessageConfig() {
         messageFile = new File(getDataFolder(), "message.yml");
-        if (!messageFile.exists()) {
-            saveResource("message.yml", false);
-        }
+        if (!messageFile.exists()) { saveResource("message.yml", false); }
         messageConfig = YamlConfiguration.loadConfiguration(messageFile);
-    }
-
-    private String getMessageWithPrefix(String key, String defaultMessage, String prefix) {
-        String message = messageConfig.getString(key, defaultMessage).replace("prefix", prefix);
-        String fixedPrefix = "<white>[ <aqua>S - Title</aqua> ] ";
-        return fixedPrefix + "<green>" + message + "</green>";
-    }
-
-    private String getMessageWithPlayerAndPrefix(String key, String defaultMessage, String playerName, String prefix) {
-        String message = messageConfig.getString(key, defaultMessage).replace("player", playerName).replace("prefix", prefix);
-        String fixedPrefix = "<white>[ <aqua>S - Title</aqua> ] ";
-        return fixedPrefix + "<green>" + message + "</green>";
-    }
-
-    // --- MiniMessage Gradient Util ---
-    public static String createMiniMessageGradient(String text, String startHex, String endHex) {
-        return "<gradient:" + startHex + ":" + endHex + ">" + text + "</gradient>";
-    }
-    public static Component miniMessageToComponent(String mm) {
-        return MiniMessage.miniMessage().deserialize(mm);
-    }
-
-    public static Component getTitleComponent(String titleMiniMsg) {
-        if (titleMiniMsg == null || titleMiniMsg.isEmpty()) return Component.empty();
-        return MiniMessage.miniMessage().deserialize(titleMiniMsg);
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         MiniMessage mm = MiniMessage.miniMessage();
-        Component component1 = mm.deserialize("<White>===========</White> "+ TITLE_PREFIX +"<White>===========</White>");
-        if (sender instanceof Player) {
-            Player player = (Player) sender;
+        Component header = mm.deserialize("<White>===========</White> "+ TITLE_PREFIX +"<White>===========</White>");
 
-            // ----- 여기서부터 명령어별 퍼미션 체크 -----
-            // /칭호 열기: 오피가 아니어도 누구나 사용 가능
-            if (args.length > 0 && args[0].equalsIgnoreCase("열기")) {
-                openTitleGUI(player);
-                return true;
+        if (!(sender instanceof Player)) {
+            // 콘솔: 지급만 허용
+            if (args.length > 0 && args[0].equalsIgnoreCase("지급")) {
+                return handleGiveCommand(sender, args, true);
             }
-
-            // /칭호 제작: 칭호 제작 퍼미션 필요
-            if (args.length > 0 && args[0].equalsIgnoreCase("제작")) {
-                if (!player.hasPermission("titleplugin.make")) {
-                    Component sendcom1 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
-                    player.sendMessage(sendcom1);
-                    return true;
-                }
-                // 그라데이션 칭호: /칭호 제작 gradient #ff0000 #00ff00 텍스트
-                if (args.length >= 5 && args[1].equalsIgnoreCase("gradient")) {
-                    String startHex = args[2];
-                    String endHex = args[3];
-                    String text = String.join(" ", Arrays.copyOfRange(args, 4, args.length));
-                    giveGradientTitleBook(player, text, startHex, endHex);
-                    return true;
-                }
-                // /칭호 제작 [원하는 칭호]
-                if (args.length >= 2) {
-                    String text = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
-                    String colorCode = "&f"; // 필요시 파싱
-                    String display = colorCode + text;
-                    TitleData title = new TitleData(text, display, TitleData.Type.NORMAL);
-
-                    giveNormalTitleBook(player, title);
-                } else {
-                    player.sendMessage(Component.text("사용법: /칭호 제작 [원하는 칭호]"));
-                }
-                return true;
-            }
-
-            // /칭호 삭제: 칭호 삭제 퍼미션 필요
-            if (args.length > 0 && args[0].equalsIgnoreCase("삭제")) {
-                if (!player.hasPermission("titleplugin.delete")) {
-                    Component sendcom2 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
-                    player.sendMessage(sendcom2);
-                    return true;
-                }
-                if (args.length < 2) {
-                    player.sendMessage(Component.text("사용법: /칭호 삭제 [플레이어닉네임]"));
-                } else {
-                    Player target = Bukkit.getPlayerExact(args[1]);
-                    if (target != null) {
-                        openTitleDeleteGUI(player, target);
-                    } else {
-                        player.sendMessage(Component.text("<red>플레이어를 찾을 수 없습니다."));
-                    }
-                }
-                return true;
-            }
-
-            // /칭호 리로드: 리로드 퍼미션 필요
-            if (args.length > 0 && args[0].equalsIgnoreCase("리로드")) {
-                if (!player.hasPermission("titleplugin.reload")) {
-                    Component sendcom3 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
-                    player.sendMessage(sendcom3);
-                    return true;
-                }
-                reloadConfig();
-                loadSoundConfig();
-                loadMessageConfig();
-                Component Comreload = mm.deserialize(TITLE_PREFIX + "설정, 출력 메세지, 사운드 파일이 리로드되었습니다.");
-                player.sendMessage(Comreload);
-                return true;
-            }
-
-            // /칭호 효과설정: 효과설정 퍼미션 필요
-            if (args.length > 0 && args[0].equalsIgnoreCase("효과설정")) {
-                if (!player.hasPermission("titleplugin.effect")) {
-                    Component sendcom4 = mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.");
-                    player.sendMessage(sendcom4);
-                    return true;
-                }
-                if (!isHoldingTitleBook(player)) {
-                    player.sendMessage(Component.text("칭호북을 들고 있어야 합니다!").color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                    return true;
-                }
-                openEffectGUI(player);
-                return true;
-            }
-
-            if (args.length == 0 && !player.isOp()) {
-                openTitleGUI(player);
-                return true;
-            }
-
-
-            // ----- 위의 명령어에 해당하지 않는 경우 기본 설명 출력 -----
-            if (args.length == 0) {
-                // 오피에게만 도움말 출력
-                if (player.isOp()) {
-                    player.sendMessage(component1);
-                    player.sendMessage(Component.text("/칭호 열기 : 자신의 칭호창을 엽니다."));
-                    player.sendMessage(Component.text("/칭호 제작 [원하는 칭호] : 일반 칭호 제작"));
-                    player.sendMessage(Component.text("/칭호 제작 gradient <HEX시작색> <HEX끝색> <텍스트> : 그라데이션 칭호 제작"));
-                    player.sendMessage(Component.text("/칭호 삭제 [플레이어 닉네임] : 해당 플레이어의 칭호창을 열어 칭호를 삭제"));
-                    player.sendMessage(Component.text("/칭호 리로드 : 설정 파일을 리로드합니다."));
-                    player.sendMessage(Component.text("================================="));
-                    return true;
-                }
-            }
+            sender.sendMessage("[S-Title] 콘솔에서는 /칭호 지급 만 사용할 수 있습니다.");
+            return true;
         }
+
+        Player player = (Player) sender;
+
+        if (args.length == 0) {
+            player.sendMessage(header);
+            player.sendMessage(mm.deserialize("<aqua>/칭호 열기</aqua> <gray>- 자신의 보유 칭호 GUI를 엽니다. 클릭 장착, 쉬프트 클릭 해제.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 제작 <white><텍스트...></white> [<yellow>id</yellow>]</aqua> <gray>- 칭호를 카탈로그(templates.yml)에 저장합니다. 마지막 인자를 넣으면 해당 값을 ID로 사용합니다.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 제작 gradient <white><HEX시작색> <HEX끝색> <텍스트...></white> [<yellow>id</yellow>]</aqua> <gray>- 그라데이션 칭호를 저장합니다. 예) /칭호 제작 gradient #ff1101 #123456 [ 죽음 ] 죽음</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 지급 <white>[칭호명 또는 ID]</white> <gray>[플레이어(선택)]</gray></aqua> <gray>- 책으로 지급합니다. 책을 우클릭하면 칭호가 등록됩니다. 플레이어를 생략하면 자기 자신에게 지급.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 목록</aqua> <gray>- 만들어진 모든 칭호(카탈로그) GUI를 엽니다. 로어에 <yellow>보유자/장착자</yellow>가 표시됩니다. <yellow>쉬프트 클릭</yellow> 시 카탈로그에서 완전 삭제되고, 보유/장착 중인 플레이어에게서도 해제/삭제됩니다.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 삭제 <white>[플레이어 닉네임]</white></aqua> <gray>- 해당 플레이어의 보유 목록에서만 삭제합니다. 카탈로그에는 영향을 주지 않습니다.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 효과설정</aqua> <gray>- 손에 든 칭호북에 효과를 저장합니다. 이후 그 북으로 장착 시 효과가 적용됩니다.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 리로드</aqua> <gray>- config.yml, message.yml, sound.yml을 리로드합니다.</gray>"));
+            player.sendMessage(mm.deserialize("<white>=================================</white>"));
+            return true;
+        }
+
+        // /칭호 열기
+        if (args[0].equalsIgnoreCase("열기")) {
+            openTitleGUI(player); return true;
+        }
+
+        // /칭호 제작: 마지막 인자를 ID로 허용
+        if (args[0].equalsIgnoreCase("제작")) {
+            if (!player.hasPermission("titleplugin.make")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.")); return true;
+            }
+            // gradient
+            if (args.length >= 5 && args[1].equalsIgnoreCase("gradient")) {
+                String startHex = args[2];
+                String endHex = args[3];
+
+                String desiredId = null;
+                String text;
+
+                if (args.length >= 6) {
+                    // 마지막 토큰을 id로, 그 전까지를 텍스트로
+                    desiredId = args[args.length - 1];
+                    text = String.join(" ", Arrays.copyOfRange(args, 4, args.length - 1));
+                } else {
+                    text = String.join(" ", Arrays.copyOfRange(args, 4, args.length));
+                }
+
+                String mmText = "<!i><gradient:" + startHex + ":" + endHex + ">" + text + "</gradient>";
+                TitleData data = new TitleData(text, mmText, TitleData.Type.GRADIENT);
+
+                try {
+                    TitleTemplate tpl = registerTemplateWithId(data, desiredId);
+                    player.sendMessage(mm.deserialize(TITLE_PREFIX + "<green>그라데이션 칭호가 저장되었습니다.</green> <gray>(ID: <yellow>"+ tpl.getId() +"</yellow>)</gray>"));
+                } catch (IllegalArgumentException ex) {
+                    player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>" + ex.getMessage() + "</red>"));
+                }
+                return true;
+            }
+
+            // normal
+            if (args.length >= 2) {
+                String desiredId = null;
+                String text;
+                if (args.length >= 3) {
+                    desiredId = args[args.length - 1];
+                    text = String.join(" ", Arrays.copyOfRange(args, 1, args.length - 1));
+                } else {
+                    text = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+                }
+
+                String display = "&f" + text;
+                TitleData data = new TitleData(text, display, TitleData.Type.NORMAL);
+
+                try {
+                    TitleTemplate tpl = registerTemplateWithId(data, desiredId);
+                    player.sendMessage(mm.deserialize(TITLE_PREFIX + "<green>칭호가 저장되었습니다.</green> <gray>(ID: <yellow>"+ tpl.getId() +"</yellow>)</gray>"));
+                } catch (IllegalArgumentException ex) {
+                    player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>" + ex.getMessage() + "</red>"));
+                }
+                return true;
+            }
+
+            player.sendMessage(Component.text("사용법: /칭호 제작 <텍스트...> [id] 또는 /칭호 제작 gradient <HEX시작색> <HEX끝색> <텍스트...> [id]"));
+            return true;
+        }
+
+        // /칭호 지급 [칭호명 or ID] [플레이어?] -> 책 지급
+        if (args[0].equalsIgnoreCase("지급")) {
+            return handleGiveCommand(sender, args, false);
+        }
+
+        // /칭호 목록
+        if (args[0].equalsIgnoreCase("목록")) {
+            openTemplateCatalogGUI(player); return true;
+        }
+
+        // /칭호 삭제 [닉] (플레이어 보유 목록에서만 삭제)
+        if (args[0].equalsIgnoreCase("삭제")) {
+            if (!player.hasPermission("titleplugin.delete")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.")); return true;
+            }
+            if (args.length < 2) {
+                player.sendMessage(Component.text("사용법: /칭호 삭제 [플레이어닉네임]")); return true;
+            }
+            Player target = Bukkit.getPlayerExact(args[1]);
+            if (target != null) { openTitleDeleteGUI(player, target); }
+            else { player.sendMessage(Component.text("<red>플레이어를 찾을 수 없습니다.")); }
+            return true;
+        }
+
+        // /칭호 리로드
+        if (args[0].equalsIgnoreCase("리로드")) {
+            if (!player.hasPermission("titleplugin.reload")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.")); return true;
+            }
+            reloadConfig(); loadSoundConfig(); loadMessageConfig();
+            player.sendMessage(mm.deserialize(TITLE_PREFIX + "설정, 출력 메세지, 사운드 파일이 리로드되었습니다.")); return true;
+        }
+
+        // /칭호 효과설정
+        if (args[0].equalsIgnoreCase("효과설정")) {
+            if (!player.hasPermission("titleplugin.effect")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.")); return true;
+            }
+            if (!isHoldingTitleBook(player)) {
+                player.sendMessage(Component.text("칭호북을 들고 있어야 합니다!").color(net.kyori.adventure.text.format.NamedTextColor.RED)); return true;
+            }
+            openEffectGUI(player); return true;
+        }
+
+        if (!player.isOp()) { openTitleGUI(player); }
         return true;
     }
 
-    // --- 칭호북 지급 (일반/그라데이션) ---
-    private void giveNormalTitleBook(Player player, TitleData title) {
-        giveTitleBookItem(player, title);
+    private boolean handleGiveCommand(CommandSender sender, String[] args, boolean console) {
         MiniMessage mm = MiniMessage.miniMessage();
-        String raw = messageConfig.getString("give_titleBook_Message", "&f칭호북이 인벤토리에 추가되었습니다: {prefix}");
-        String msgMini = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(raw)
-        );
-
-        String prefix = title.getDisplay();
-
-        String parsedPrefix;
-        if (prefix.contains("<") && prefix.contains(">")) {
-            parsedPrefix = prefix;
-        } else if (prefix.contains("&")) {
-            parsedPrefix = MiniMessage.miniMessage().serialize(
-                    LegacyComponentSerializer.legacyAmpersand().deserialize(prefix)
-            );
-        } else {
-            parsedPrefix = MiniMessage.miniMessage().serialize(Component.text(prefix));
+        if (args.length < 2) {
+            sender.sendMessage(mm.deserialize(TITLE_PREFIX + "<gray>사용법: /칭호 지급 [칭호명 또는 ID] [플레이어(선택)]</gray>"));
+            return true;
+        }
+        String titleKey = args[1];
+        TitleTemplate tpl = findTemplateByKey(titleKey);
+        if (tpl == null) {
+            sender.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>해당 칭호를 카탈로그에서 찾을 수 없습니다.</red>"));
+            return true;
         }
 
-        String finalMsg = msgMini.replace("{prefix}", parsedPrefix);
-        player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + finalMsg));
+        Player target;
+        if (args.length >= 3) {
+            target = Bukkit.getPlayerExact(args[2]);
+            if (target == null) {
+                sender.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>플레이어를 찾을 수 없습니다.</red>"));
+                return true;
+            }
+        } else {
+            if (console) {
+                sender.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>콘솔에서는 플레이어 닉네임을 반드시 지정해야 합니다.</red>"));
+                return true;
+            } else if (sender instanceof Player p) {
+                target = p;
+            } else {
+                sender.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>대상 플레이어를 지정해주세요.</red>"));
+                return true;
+            }
+        }
 
-        playSound(player, "title_get_sound", "ENTITY_PLAYER_LEVELUP");
+        // 책 지급
+        TitleData data = new TitleData(tpl.getName(), tpl.getDisplay(), tpl.getType(), tpl.getId());
+        giveTitleBookItemWithTemplate(target, data, tpl.getId());
+
+        if (!(sender instanceof Player) || ((Player) sender).getUniqueId() != target.getUniqueId()) {
+            sender.sendMessage(mm.deserialize(TITLE_PREFIX + "<green>칭호북 지급 완료:</green> <yellow>" + tpl.getName() + "</yellow> -> <aqua>" + target.getName() + "</aqua>"));
+        }
+        target.sendMessage(mm.deserialize(TITLE_PREFIX + "<green>칭호북을 받았습니다.</green> 우클릭하면 칭호가 등록됩니다."));
+        playSound(target, "title_get_sound", "ENTITY_PLAYER_LEVELUP");
+        return true;
     }
 
-    private void giveGradientTitleBook(Player player, String text, String startHex, String endHex) {
-        // 1. 칭호 MiniMessage 포맷에 <reset> 추가 (이탤릭 방지)
-        String mm = "<!i><gradient:" + startHex + ":" + endHex + ">" + text + "</gradient>";
-        TitleData title = new TitleData(text, mm, TitleData.Type.GRADIENT);
-        giveTitleBookItem(player, title);
+    // --- 카탈로그 GUI ---
+    private void openTemplateCatalogGUI(Player player) {
+        int guiRows = Math.min(6, Math.max(1, getConfig().getInt("catalog_gui_row", 6)));
+        Inventory inv = Bukkit.createInventory(null, guiRows * 9, "칭호 목록");
 
-        // 2. 메시지는 config에서 MiniMessage 포맷으로 관리 추천!
-        // 예: "give_titleBook_Message: '<white>칭호북이 인벤토리에 추가되었습니다: <gradient:#00ff99:#ff00ff>prefix</gradient>'"
-        String raw = messageConfig.getString("give_Gradient_TitleBook_Message", "<white>칭호북이 인벤토리에 추가되었습니다: {prefix}");
+        for (TitleTemplate tpl : templates.values()) {
+            ItemStack item = new ItemStack(Material.PAPER);
+            ItemMeta meta = item.getItemMeta();
 
-        raw = addTitlePrefix(raw);
-        // 3. prefix 치환시에도 <reset> 추가해서 이탤릭이 번지지 않도록!
-        String parsedPrefix = mm; // 이미 <reset>이 들어간 상태
+            // 이름 표시
+            if (tpl.getDisplay().contains("<") && tpl.getDisplay().contains(">")) {
+                meta.displayName(MiniMessage.miniMessage().deserialize(tpl.getDisplay()));
+            } else if (tpl.getDisplay().contains("&") || tpl.getDisplay().contains("§")) {
+                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', tpl.getDisplay()));
+            } else {
+                meta.setDisplayName(tpl.getDisplay());
+            }
 
-        String finalMsg = raw.replace("{prefix}", parsedPrefix);
-        player.sendMessage(MiniMessage.miniMessage().deserialize(finalMsg));
+            // 로어: 보유자/장착자
+            List<String> owners = new ArrayList<>();
+            List<String> equipped = new ArrayList<>();
+            for (Map.Entry<UUID, List<TitleData>> e : playerTitles.entrySet()) {
+                UUID uid = e.getKey();
+                String nick = Bukkit.getOfflinePlayer(uid).getName();
+                if (nick == null) nick = uid.toString().substring(0, 8);
 
-        playSound(player, "title_get_sound", "ENTITY_PLAYER_LEVELUP");
+                boolean has = e.getValue().stream().anyMatch(td -> matchesTemplate(td, tpl));
+                if (has) owners.add(nick);
+
+                TitleData act = activeTitles.get(uid);
+                if (act != null && matchesTemplate(act, tpl)) {
+                    equipped.add(nick);
+                }
+            }
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "타입: " + tpl.getType().name());
+            lore.add(ChatColor.DARK_GRAY + "ID: " + tpl.getId());
+            lore.add(ChatColor.YELLOW + "보유자(" + owners.size() + "): " + (owners.isEmpty() ? "-" : String.join(", ", trimList(owners, 10))));
+            lore.add(ChatColor.AQUA + "장착자(" + equipped.size() + "): " + (equipped.isEmpty() ? "-" : String.join(", ", trimList(equipped, 10))));
+            meta.setLore(lore);
+
+            // PDC에 템플릿 ID 저장
+            meta.getPersistentDataContainer().set(new NamespacedKey(this, "template_id"), PersistentDataType.STRING, tpl.getId());
+            item.setItemMeta(meta);
+            inv.addItem(item);
+        }
+        player.openInventory(inv);
     }
 
-    private void giveTitleBookItem(Player player, TitleData title) {
+    private List<String> trimList(List<String> list, int limit) {
+        if (list.size() <= limit) return list;
+        List<String> result = new ArrayList<>(list.subList(0, limit));
+        result.add("…+" + (list.size() - limit));
+        return result;
+    }
+
+    // --- 책 지급(템플릿 ID 포함) ---
+    private void giveTitleBookItemWithTemplate(Player player, TitleData title, String templateId) {
         FileConfiguration config = getConfig();
 
         String path = title.getType() == TitleData.Type.GRADIENT ? "Gradient_Title_book" : "Title_book";
@@ -429,6 +577,9 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         data.set(new NamespacedKey(this, "title_name"), PersistentDataType.STRING, title.getName());
         data.set(new NamespacedKey(this, "title_display"), PersistentDataType.STRING, title.getDisplay());
         data.set(new NamespacedKey(this, "title_type"), PersistentDataType.STRING, title.getType().name());
+        if (templateId != null) {
+            data.set(new NamespacedKey(this, "template_id"), PersistentDataType.STRING, templateId);
+        }
 
         book.setItemMeta(meta);
         player.getInventory().addItem(book);
@@ -447,7 +598,6 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         for (TitleData title : titles) {
             if (title == null) continue;
 
-            // 아이템 생성
             ItemStack item;
             if (title.equals(activeTitle)) {
                 item = getConfigItem("Title_book_Icon", title.getDisplay());
@@ -456,30 +606,28 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 item = getConfigItem("Title_book_Icon", title.getDisplay());
             }
 
-            // NBT에 칭호 정보 저장
             ItemMeta meta = item.getItemMeta();
             PersistentDataContainer data = meta.getPersistentDataContainer();
             data.set(new NamespacedKey(this, "title_name"), PersistentDataType.STRING, title.getName());
             data.set(new NamespacedKey(this, "title_display"), PersistentDataType.STRING, title.getDisplay());
             data.set(new NamespacedKey(this, "title_type"), PersistentDataType.STRING, title.getType().name());
+            if (title.getTemplateId() != null) {
+                data.set(new NamespacedKey(this, "template_id"), PersistentDataType.STRING, title.getTemplateId());
+            }
             item.setItemMeta(meta);
 
             inv.addItem(item);
-
             if (++count >= maxSlots) break;
         }
 
         player.openInventory(inv);
     }
 
-
     private boolean isHoldingTitleBook(Player player) {
         ItemStack item = player.getInventory().getItemInMainHand();
         if (item == null || !item.hasItemMeta()) return false;
-
         ItemMeta meta = item.getItemMeta();
         PersistentDataContainer data = meta.getPersistentDataContainer();
-
         return data.has(new NamespacedKey(this, TITLE_BOOK_METADATA), PersistentDataType.STRING);
     }
 
@@ -501,16 +649,8 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
                 meta.setDisplayName(ChatColor.AQUA + effectName);
-                List<String> lore = new ArrayList<>();
-                lore.add(ChatColor.GRAY + "이 효과를 선택하면 칭호북에 적용됩니다.");
-                meta.setLore(lore);
-
-                // NBT에 효과 타입 저장
-                meta.getPersistentDataContainer().set(
-                        new NamespacedKey(this, EFFECT_METADATA),
-                        PersistentDataType.STRING,
-                        effectType.getName()
-                );
+                meta.setLore(Collections.singletonList(ChatColor.GRAY + "이 효과를 선택하면 칭호북에 적용됩니다."));
+                meta.getPersistentDataContainer().set(new NamespacedKey(this, EFFECT_METADATA), PersistentDataType.STRING, effectType.getName());
                 item.setItemMeta(meta);
             }
             gui.addItem(item);
@@ -536,20 +676,21 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         String name = data.get(new NamespacedKey(this, "title_name"), PersistentDataType.STRING);
         String display = data.get(new NamespacedKey(this, "title_display"), PersistentDataType.STRING);
         String typeStr = data.get(new NamespacedKey(this, "title_type"), PersistentDataType.STRING);
+        String templateId = data.get(new NamespacedKey(this, "template_id"), PersistentDataType.STRING);
         if (name == null || display == null || typeStr == null) return;
 
         TitleData.Type type;
-        try {
-            type = TitleData.Type.valueOf(typeStr);
-        } catch (IllegalArgumentException e) {
-            return;
-        }
-        TitleData title = new TitleData(name, display, type);
+        try { type = TitleData.Type.valueOf(typeStr); } catch (IllegalArgumentException e) { return; }
+
+        TitleData title = new TitleData(name, display, type, templateId);
 
         UUID playerId = player.getUniqueId();
         List<TitleData> titles = playerTitles.computeIfAbsent(playerId, k -> new ArrayList<>());
 
-        if (titles.contains(title)) {
+        boolean allowDupGradient = getConfig().getBoolean("allow_duplicate_gradient_per_user", false);
+        boolean alreadyOwned = titles.contains(title);
+
+        if (alreadyOwned && !(allowDupGradient && title.getType() == TitleData.Type.GRADIENT)) {
             sendAlreadyHaveMessage(player, title);
             event.setCancelled(true);
             return;
@@ -562,24 +703,18 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             sendNormalTitleObtainedMessage(player, title);
         }
 
-        if (item.getAmount() > 1) {
-            item.setAmount(item.getAmount() - 1);
-        } else {
-            player.setItemInHand(new ItemStack(Material.AIR));
-        }
+        if (item.getAmount() > 1) { item.setAmount(item.getAmount() - 1); }
+        else { player.setItemInHand(new ItemStack(Material.AIR)); }
         event.setCancelled(true);
         updatePlayerDisplayName(player);
-
-
+        saveTitles();
     }
 
     private void sendNormalTitleObtainedMessage(Player player, TitleData title) {
         String rawMsg = messageConfig.getString("give_titleBook_Message", "&e칭호를 획득했습니다: {prefix}")
                 .replace("{prefix}", title.getDisplay());
 
-        String miniMsg = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(rawMsg)
-        );
+        String miniMsg = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(rawMsg));
         playSound(player, "title_add_sound", "UI_TOAST_CHALLENGE_COMPLETE");
         String msgWithPrefix = TITLE_PREFIX + miniMsg;
         player.sendMessage(MiniMessage.miniMessage().deserialize(msgWithPrefix));
@@ -602,19 +737,13 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         } else {
             String deserialized = messageConfig.getString("already_have_Title_message", "&c이미 보유한 칭호입니다: {prefix}")
                     .replace("{prefix}", title.getDisplay());
-
-            String miniMsg = MiniMessage.miniMessage().serialize(
-                    LegacyComponentSerializer.legacyAmpersand().deserialize(deserialized)
-            );
-
+            String miniMsg = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(deserialized));
             String msgWithPrefix = TITLE_PREFIX + miniMsg;
             player.sendMessage(MiniMessage.miniMessage().deserialize(msgWithPrefix));
         }
     }
 
-    // MiniMessage 특수문자 이스케이프용 (필요 시)
     private String escapeMiniMessage(String str) {
-        // MiniMessage에서 <, >, & 등 특수문자 이스케이프 필요 시 구현
         return str.replace("<", "&lt;").replace(">", "&gt;");
     }
 
@@ -633,6 +762,9 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
             ItemMeta meta = item.getItemMeta();
             meta.getPersistentDataContainer().set(new NamespacedKey(this, "title_name"), PersistentDataType.STRING, title.getName());
+            if (title.getTemplateId() != null) {
+                meta.getPersistentDataContainer().set(new NamespacedKey(this, "template_id"), PersistentDataType.STRING, title.getTemplateId());
+            }
             item.setItemMeta(meta);
 
             inv.addItem(item);
@@ -644,9 +776,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     private int getValidGuiRows() {
         int guiRows = getConfig().getInt("gui_row", 3);
-        if (guiRows < 1 || guiRows > 6) {
-            guiRows = 3;
-        }
+        if (guiRows < 1 || guiRows > 6) { guiRows = 3; }
         return guiRows;
     }
 
@@ -661,15 +791,12 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             String lore = getConfig().getString(configPath + ".lore", "").replace("prefix", safeTitle);
             loreList = Arrays.asList(lore);
         } else {
-            loreList = loreList.stream()
-                    .map(lore -> lore.replace("prefix", safeTitle))
-                    .collect(Collectors.toList());
+            loreList = loreList.stream().map(lore -> lore.replace("prefix", safeTitle)).collect(Collectors.toList());
         }
 
         ItemStack item = new ItemStack(mat);
         ItemMeta meta = item.getItemMeta();
 
-        // 이름 색코드 변환 (String만!)
         if (name.contains("&") || name.contains("§")) {
             meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
         } else {
@@ -677,7 +804,6 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                     .serialize(MiniMessage.miniMessage().deserialize(name)));
         }
 
-        // 로어 색코드 변환 (String만!)
         List<String> loreColored = new ArrayList<>();
         for (String line : loreList) {
             if (line.contains("&") || line.contains("§")) {
@@ -770,7 +896,6 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             if (display.contains("&") || display.contains("§")) {
                 titleColored = ChatColor.translateAlternateColorCodes('&', display);
             } else {
-                // MiniMessage를 legacy 색코드로 변환하여 String으로 사용
                 titleColored = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection()
                         .serialize(MiniMessage.miniMessage().deserialize(display));
             }
@@ -811,10 +936,9 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        Bukkit.getLogger().info("Inventory 클릭 이벤트 호출됨: " + event.getView().getTitle());
         Player player = (Player) event.getWhoClicked();
         ItemStack item = event.getCurrentItem();
-        if (item == null || !item.hasItemMeta()) return;
+        if (player == null || item == null || !item.hasItemMeta()) return;
 
         String inventoryTitle = event.getView().getTitle();
         if (inventoryTitle.contains("님의 칭호 현황")) {
@@ -823,13 +947,15 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             ItemMeta meta = item.getItemMeta();
             PersistentDataContainer data = meta.getPersistentDataContainer();
             String clickedTitleName = data.get(new NamespacedKey(this, "title_name"), PersistentDataType.STRING);
-            if (clickedTitleName == null) {
+            String clickedTemplateId = data.get(new NamespacedKey(this, "template_id"), PersistentDataType.STRING);
+            if (clickedTitleName == null && clickedTemplateId == null) {
                 player.sendMessage(Component.text("[ Error ] 칭호 정보를 찾을 수 없습니다.", net.kyori.adventure.text.format.NamedTextColor.RED));
                 return;
             }
 
             TitleData clicked = playerTitles.getOrDefault(playerId, new ArrayList<>()).stream()
-                    .filter(td -> td.getName().equals(clickedTitleName))
+                    .filter(td -> (clickedTemplateId != null && clickedTemplateId.equals(td.getTemplateId()))
+                            || (clickedTemplateId == null && td.getName().equals(clickedTitleName)))
                     .findFirst().orElse(null);
 
             if (clicked == null) {
@@ -856,60 +982,16 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             player.closeInventory();
             openTitleGUI(player);
 
+        } else if (inventoryTitle.equals("칭호 목록")) {
+            event.setCancelled(true);
+            handleCatalogClick(event, player, item);
+
         } else if (inventoryTitle.startsWith("칭호 삭제 - ")) {
-//            event.setCancelled(true);
-//            String display = item.getItemMeta().getDisplayName();
-//            UUID adminId = player.getUniqueId();
-//            UUID targetId = deleteTargets.get(adminId);
-//
-//            if (targetId != null) {
-//                List<TitleData> titles = playerTitles.get(targetId);
-//                TitleData toRemove = titles.stream()
-//                        .filter(td -> {
-//                            String expectedDisplay;
-//                            if (td.getType() == TitleData.Type.GRADIENT) {
-//                                expectedDisplay = td.getDisplay();
-//                            } else {
-//                                expectedDisplay = ChatColor.translateAlternateColorCodes('&', td.getDisplay());
-//                            }
-//                            return display.equals(expectedDisplay);
-//                        })
-//                        .findFirst().orElse(null);
-//
-//                if (titles != null && toRemove != null && titles.remove(toRemove)) {
-//                    Player target = Bukkit.getPlayer(targetId);
-//                    if (target != null) {
-//                        if (toRemove.equals(activeTitles.get(targetId))) {
-//                            if (toRemove.getType() == TitleData.Type.GRADIENT) {
-//                                unequipGradientTitle(target, toRemove);
-//                            } else {
-//                                unequipNormalTitle(target, toRemove);
-//                            }
-//                        }
-//                        String prefix = toRemove.getType() == TitleData.Type.GRADIENT
-//                                ? toRemove.getDisplay()
-//                                : MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(toRemove.getDisplay()));
-//
-//                        String rawMsg = messageConfig.getString("delete_Title_message", "player님의 칭호가 삭제되었습니다: prefix")
-//                                .replace("prefix", prefix)
-//                                .replace("player", target.getName());
-//                        target.sendMessage(MiniMessage.miniMessage().deserialize(rawMsg));
-//                    }
-//                    player.closeInventory();
-//                } else {
-//                    player.sendMessage(Component.text("[ Error ] 칭호를 삭제할 수 없습니다.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
-//                }
-//            } else {
-//                player.sendMessage(Component.text("[ Error ] 플레이어를 찾을 수 없습니다.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
-//            }
             handleTitleDelete(event, player, item);
-        }
 
-
-        else if (inventoryTitle.equals("칭호 효과 설정")) {
+        } else if (inventoryTitle.equals("칭호 효과 설정")) {
             event.setCancelled(true);
 
-            // 칭호북을 들고 있는지 체크
             ItemStack mainHand = player.getInventory().getItemInMainHand();
             if (mainHand == null || !mainHand.hasItemMeta() ||
                     !mainHand.getItemMeta().getPersistentDataContainer().has(new NamespacedKey(this, TITLE_BOOK_METADATA), PersistentDataType.STRING)) {
@@ -918,10 +1000,8 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 return;
             }
 
-            // 선택된 효과 정보(NBT에서 추출)
             ItemMeta meta = item.getItemMeta();
-            String effectTypeName = meta.getPersistentDataContainer().get(
-                    new NamespacedKey(this, EFFECT_METADATA), PersistentDataType.STRING);
+            String effectTypeName = meta.getPersistentDataContainer().get(new NamespacedKey(this, EFFECT_METADATA), PersistentDataType.STRING);
 
             if (effectTypeName == null) {
                 player.sendMessage(ChatColor.RED + "효과 정보를 찾을 수 없습니다!");
@@ -929,15 +1009,57 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 return;
             }
 
-            // (선택) 레벨을 채팅으로 입력받는다면, pendingEffects에 저장 후 안내
             pendingEffects.put(player.getUniqueId(), PotionEffectType.getByName(effectTypeName));
             player.closeInventory();
-//            player.sendMessage( Component.text(TITLE_PREFIX + ChatColor.AQUA + "적용할 효과 레벨(1~255)을 채팅으로 입력하세요. '-' 입력시 취소"));
             player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<aqua>적용할 효과 레벨(1~255)을 채팅으로 입력하세요. '-' 입력시 취소"));
-
         }
 
     }
+
+    private void handleCatalogClick(InventoryClickEvent event, Player player, ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        String templateId = meta.getPersistentDataContainer().get(new NamespacedKey(this, "template_id"), PersistentDataType.STRING);
+        if (templateId == null) return;
+
+        TitleTemplate tpl = templates.get(templateId);
+        if (tpl == null) return;
+
+        // 쉬프트 클릭: 카탈로그에서 완전 삭제 + 모든 플레이어 보유/장착 해제
+        if (event.isShiftClick()) {
+            if (!player.hasPermission("titleplugin.delete") && !player.isOp()) {
+                player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<red>권한이 없습니다.</red>"));
+                return;
+            }
+            for (UUID uid : new ArrayList<>(playerTitles.keySet())) {
+                List<TitleData> list = playerTitles.get(uid);
+                if (list == null) continue;
+
+                TitleData active = activeTitles.get(uid);
+                if (active != null && matchesTemplate(active, tpl)) {
+                    Player p = Bukkit.getPlayer(uid);
+                    if (p != null) {
+                        if (active.getType() == TitleData.Type.GRADIENT) unequipGradientTitle(p, active);
+                        else unequipNormalTitle(p, active);
+                    }
+                    activeTitles.remove(uid);
+                }
+                list.removeIf(td -> matchesTemplate(td, tpl));
+            }
+            templates.remove(templateId);
+            saveTemplates(); saveTitles();
+
+            player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + "<yellow>카탈로그에서 칭호가 삭제되었습니다.</yellow> : " + " <gray>(ID: " + tpl.getId() + ")</gray>"));
+            player.closeInventory();
+            openTemplateCatalogGUI(player);
+            return;
+        }
+
+        // 일반 클릭: 정보 출력
+        player.sendMessage(MiniMessage.miniMessage().deserialize(
+                TITLE_PREFIX + "<white>선택:</white> " + tpl.getDisplay() + " <gray>(ID: " + tpl.getId() + ")</gray>"
+        ));
+    }
+
     private void handleTitleDelete(InventoryClickEvent event, Player player, ItemStack item) {
         event.setCancelled(true);
         UUID adminId = player.getUniqueId();
@@ -950,16 +1072,14 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 return;
             }
 
+            String clickedTemplateId = item.getItemMeta().getPersistentDataContainer()
+                    .get(new NamespacedKey(this, "template_id"), PersistentDataType.STRING);
             String clickedName = item.getItemMeta().getPersistentDataContainer()
                     .get(new NamespacedKey(this, "title_name"), PersistentDataType.STRING);
 
-            if (clickedName == null) {
-                player.sendMessage(Component.text("[ Error ] 칭호 이름 데이터를 찾을 수 없습니다.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                return;
-            }
-
             TitleData toRemove = titles.stream()
-                    .filter(td -> td.getName().equals(clickedName))
+                    .filter(td -> (clickedTemplateId != null && clickedTemplateId.equals(td.getTemplateId()))
+                            || (clickedTemplateId == null && td.getName().equals(clickedName)))
                     .findFirst().orElse(null);
 
             if (toRemove != null && titles.remove(toRemove)) {
@@ -980,6 +1100,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                     }
                 }
                 player.closeInventory();
+                saveTitles();
             } else {
                 player.sendMessage(Component.text("[ Error ] 칭호를 삭제할 수 없습니다.").color(net.kyori.adventure.text.format.NamedTextColor.RED));
             }
@@ -994,13 +1115,9 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 .replace("{player}", target.getName())
                 .replace("{prefix}", prefix);
 
-        String miniMsg = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(rawMsg)
-        );
-
+        String miniMsg = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(rawMsg));
         String msgWithPrefix = TITLE_PREFIX + miniMsg;
 
-        String coloredMsg = ChatColor.translateAlternateColorCodes('&', rawMsg);
         playSound(target, "title_delete_sound", "ENTITY_ITEM_BREAK");
         target.sendMessage(MiniMessage.miniMessage().deserialize(msgWithPrefix));
     }
@@ -1015,19 +1132,13 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         target.sendMessage(MiniMessage.miniMessage().deserialize(rawMsg));
     }
 
-
     private void unequipNormalTitle(Player player, TitleData title) {
         activeTitles.remove(player.getUniqueId());
         removeAllPotionEffects(player);
 
         String raw = messageConfig.getString("unequip_Title_message", "&c칭호가 해제되었습니다: {prefix}");
-
-        String msgMini = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(raw)
-        );
-        String parsedPrefix = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(title.getDisplay())
-        );
+        String msgMini = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(raw));
+        String parsedPrefix = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(title.getDisplay()));
         String finalMsg = msgMini.replace("{prefix}", parsedPrefix);
         player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + finalMsg));
 
@@ -1040,9 +1151,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         removeAllPotionEffects(player);
 
         String raw = messageConfig.getString("unequip_Title_message", "칭호가 해제되었습니다: {prefix}");
-        String msgMini = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(raw)
-        );
+        String msgMini = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(raw));
         String finalMsg = msgMini.replace("{prefix}", title.getDisplay());
         finalMsg = addTitlePrefix(finalMsg);
         player.sendMessage(MiniMessage.miniMessage().deserialize(finalMsg));
@@ -1057,19 +1166,13 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         }
     }
 
-
     private void equipNormalTitle(Player player, TitleData title) {
         activeTitles.put(player.getUniqueId(), title);
-        applyEffectFromTitle(player, null); // 일반 칭호는 item 메타 없어도 됨
+        applyEffectFromTitle(player, null);
 
-        // & → MiniMessage 변환
         String raw = messageConfig.getString("equip_Title_message", "&e칭호가 장착되었습니다: {prefix}");
-        String msgMini = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(raw)
-        );
-        String parsedPrefix = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(title.getDisplay())
-        );
+        String msgMini = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(raw));
+        String parsedPrefix = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(title.getDisplay()));
         String finalMsg = msgMini.replace("{prefix}", parsedPrefix);
         player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + finalMsg));
 
@@ -1079,21 +1182,15 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     private void equipGradientTitle(Player player, TitleData title, ItemStack item) {
         activeTitles.put(player.getUniqueId(), title);
-        applyEffectFromTitle(player, item); // item에 따른 효과 있음
+        applyEffectFromTitle(player, item);
 
         String raw = messageConfig.getString("equip_Title_message", "칭호가 장착되었습니다: {prefix}");
-        String msgMini = MiniMessage.miniMessage().serialize(
-                LegacyComponentSerializer.legacyAmpersand().deserialize(raw)
-        );
+        String msgMini = MiniMessage.miniMessage().serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(raw));
         String finalMsg = msgMini.replace("{prefix}", title.getDisplay());
         player.sendMessage(MiniMessage.miniMessage().deserialize(TITLE_PREFIX + finalMsg));
 
         playSound(player, "title_select_sound", "ENTITY_VILLAGER_YES");
         updatePlayerDisplayName(player);
-    }
-
-    private void applyEffect(Player player, PotionEffectType effectType, int level) {
-        player.addPotionEffect(new PotionEffect(effectType, Integer.MAX_VALUE, level));
     }
 
     @EventHandler
@@ -1118,7 +1215,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         if (title != null && title.getType() == TitleData.Type.NORMAL) {
             PotionEffectType effect = titleEffects.get(title.getName());
             if (effect != null) {
-                applyEffect(player, effect, 0);
+                player.addPotionEffect(new PotionEffect(effect, Integer.MAX_VALUE, 0));
             }
         }
     }
@@ -1141,10 +1238,8 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             Component titleComp;
 
             if (display.contains("<") && display.contains(">")) {
-                // MiniMessage 형식인 경우
                 titleComp = MiniMessage.miniMessage().deserialize(display);
             } else if (display.contains("&") || display.contains("§")) {
-                // Legacy 색코드인 경우
                 titleComp = LegacyComponentSerializer.legacySection()
                         .deserialize(ChatColor.translateAlternateColorCodes('&', display));
             } else {
@@ -1159,22 +1254,6 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             player.playerListName(Component.text(player.getName()));
         }
     }
-
-//    private void updatePlayerDisplayName(Player player) {
-//        UUID playerId = player.getUniqueId();
-//        TitleData activeTitle = activeTitles.get(playerId);
-//
-//        if (activeTitle != null && !activeTitle.getDisplay().isEmpty()) {
-//            String display = activeTitle.getDisplay();
-//            Component titleComp = MiniMessage.miniMessage().deserialize(display);
-//            Component fullName = titleComp.append(Component.text(" " + player.getName()));
-//            player.displayName(fullName);
-//            player.playerListName(fullName);
-//        } else {
-//            player.displayName(Component.text(player.getName()));
-//            player.playerListName(Component.text(player.getName()));
-//        }
-//    }
 
     private void resetPlayerDisplayName(Player player) {
         player.setPlayerListName(player.getName());
@@ -1194,9 +1273,8 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        // 오피가 아니면 탭 컴플리트 결과를 숨김
         if (sender instanceof Player player && !player.isOp()) {
-            return Collections.emptyList(); // 또는 return null;
+            return Collections.emptyList();
         }
 
         if (command.getName().equalsIgnoreCase("칭호")) {
@@ -1205,22 +1283,33 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             if (args.length == 1) {
                 completions.add("열기");
                 completions.add("제작");
+                completions.add("지급");
+                completions.add("목록");
                 completions.add("삭제");
                 completions.add("리로드");
                 completions.add("효과설정");
             } else if (args.length == 2 && args[0].equalsIgnoreCase("삭제")) {
-                completions = Bukkit.getOnlinePlayers().stream()
-                        .map(Player::getName)
-                        .collect(Collectors.toList());
-            } else if (args.length == 2 && args[0].equalsIgnoreCase("제작")) {
-                completions.add("[원하는 칭호]");
-                completions.add("gradient");
-            } else if (args.length == 3 && args[0].equalsIgnoreCase("제작") && args[1].equalsIgnoreCase("gradient")) {
-                completions.add("<HEX시작색>");
-            } else if (args.length == 4 && args[0].equalsIgnoreCase("제작") && args[1].equalsIgnoreCase("gradient")) {
-                completions.add("<HEX끝색>");
-            } else if (args.length == 5 && args[0].equalsIgnoreCase("제작") && args[1].equalsIgnoreCase("gradient")) {
-                completions.add("<텍스트>");
+                completions = Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
+            } else if (args[0].equalsIgnoreCase("제작")) {
+                if (args.length == 2) {
+                    completions.add("[텍스트...]");
+                    completions.add("gradient");
+                } else if (args.length == 3 && args[1].equalsIgnoreCase("gradient")) {
+                    completions.add("<HEX시작색>");
+                } else if (args.length == 4 && args[1].equalsIgnoreCase("gradient")) {
+                    completions.add("<HEX끝색>");
+                } else if (args.length >= 5 && args[1].equalsIgnoreCase("gradient")) {
+                    completions.add("<텍스트...>");
+                }else if (args.length == 6 && !args[1].equalsIgnoreCase("gradient")) {
+                    completions.add("[id]");
+                } else if (args.length >= 3 && !args[1].equalsIgnoreCase("gradient")) {
+                    completions.add("[id]");
+                }
+            } else if (args.length == 2 && args[0].equalsIgnoreCase("지급")) {
+                completions.addAll(templates.values().stream().map(TitleTemplate::getName).distinct().limit(20).collect(Collectors.toList()));
+                completions.addAll(templates.keySet().stream().limit(10).collect(Collectors.toList()));
+            } else if (args.length == 3 && args[0].equalsIgnoreCase("지급")) {
+                completions.addAll(Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList()));
             }
 
             return completions;
