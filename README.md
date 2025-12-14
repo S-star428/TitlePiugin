@@ -26,6 +26,9 @@ Titles now appear next to the player's name above their head.</p>
 <p> v1.2: All titles created by adding a list of titles can be viewed in the list, 
 and holders and fitters can be seen directly from the list, We added the desired title from the list so that you can 
 receive it right away, and if the title is deleted from the list, the title is deleted even when it is held or installed.</p>
+<p> v1.3: Fixed a bug that allowed you to register a title if you owned a title book after deleting the title from the cardegori. In the title open, you
+Added date and time when the title was obtained. /Initialize the entire title, /Initialize the title, /Initialize the title [Player Nickname] command, and the player concerned,
+You can delete all titles of the entire player.</p>
 
 <h1> How to display titles next to the name above the player’s head </h1>
 <p>First, create a group using the TAB plugin, then add a tagprefix to that group along with the title placeholder.</p>
