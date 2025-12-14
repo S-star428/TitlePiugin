@@ -36,6 +36,8 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -109,36 +111,56 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
     private void loadTitles() {
         titlesFile = new File(getDataFolder(), "titles.yml");
         if (!titlesFile.exists()) {
-            try { titlesFile.createNewFile(); } catch (IOException e) { e.printStackTrace(); }
+            try {
+                titlesFile.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         titlesConfig = YamlConfiguration.loadConfiguration(titlesFile);
 
         for (String key : titlesConfig.getKeys(false)) {
             try {
                 UUID playerId = UUID.fromString(key);
-                List<Map<?, ?>> titleSection = titlesConfig.getMapList(key + ".titles");
+                List<Map<?, ?>> titleSection = titlesConfig.getMapList(key + ".titles"); // 칭호 리스트 로드
                 List<TitleData> titles = new ArrayList<>();
+
+                if (titleSection == null) {
+                    titleSection = new ArrayList<>(); // null일 경우 빈 리스트로 초기화
+                }
+
                 for (Map<?, ?> map : titleSection) {
                     String name = (String) map.get("name");
                     String display = (String) map.get("display");
                     String typeStr = (String) map.get("type");
                     String templateId = (String) map.getOrDefault("templateId", null);
+                    String acquiredAtStr = (String) map.getOrDefault("acquiredAt", null); // 획득 시간 로드
+
                     TitleData.Type type = TitleData.Type.valueOf(typeStr);
-                    titles.add(new TitleData(name, display, type, templateId));
+                    LocalDateTime acquiredAt = acquiredAtStr != null ? LocalDateTime.parse(acquiredAtStr) : LocalDateTime.now();
+
+                    titles.add(new TitleData(name, display, type, templateId, acquiredAt)); // 획득 시간 포함한 TitleData 객체 생성
                 }
-                Map<?,?> activeMap = titlesConfig.getConfigurationSection(key + ".activeTitle") != null
+
+                Map<?, ?> activeMap = titlesConfig.getConfigurationSection(key + ".activeTitle") != null
                         ? titlesConfig.getConfigurationSection(key + ".activeTitle").getValues(false)
                         : null;
+
                 TitleData activeTitle = null;
                 if (activeMap != null) {
                     String name = (String) activeMap.get("name");
                     String display = (String) activeMap.get("display");
                     String typeStr = (String) activeMap.get("type");
                     String templateId = (String) activeMap.getOrDefault("templateId", null);
+                    String acquiredAtStr = (String) activeMap.getOrDefault("acquiredAt", null);
+
                     TitleData.Type type = TitleData.Type.valueOf(typeStr);
-                    activeTitle = new TitleData(name, display, type, templateId);
+                    LocalDateTime acquiredAt = acquiredAtStr != null ? LocalDateTime.parse(acquiredAtStr) : LocalDateTime.now();
+
+                    activeTitle = new TitleData(name, display, type, templateId, acquiredAt);
                 }
-                playerTitles.put(playerId, titles);
+
+                playerTitles.put(playerId, titles); // 플레이어의 칭호 데이터 저장
                 if (activeTitle != null) activeTitles.put(playerId, activeTitle);
             } catch (IllegalArgumentException e) {
                 getLogger().warning("[S-Title] 잘못된 UUID: " + key);
@@ -148,24 +170,26 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
     private void saveTitles() {
         for (UUID playerId : playerTitles.keySet()) {
-            List<Map<String,Object>> titlesList = new ArrayList<>();
+            List<Map<String, Object>> titlesList = new ArrayList<>();
             for (TitleData title : playerTitles.get(playerId)) {
-                Map<String,Object> map = new HashMap<>();
+                Map<String, Object> map = new HashMap<>();
                 map.put("name", title.getName());
                 map.put("display", title.getDisplay());
                 map.put("type", title.getType().name());
                 if (title.getTemplateId() != null) map.put("templateId", title.getTemplateId());
+                map.put("acquiredAt", title.getAcquiredAt().toString()); // 획득 시간 저장
                 titlesList.add(map);
             }
             titlesConfig.set(playerId.toString() + ".titles", titlesList);
 
             TitleData active = activeTitles.get(playerId);
             if (active != null) {
-                Map<String,Object> map = new HashMap<>();
+                Map<String, Object> map = new HashMap<>();
                 map.put("name", active.getName());
                 map.put("display", active.getDisplay());
                 map.put("type", active.getType().name());
                 if (active.getTemplateId() != null) map.put("templateId", active.getTemplateId());
+                map.put("acquiredAt", active.getAcquiredAt().toString()); // 획득 시간 저장
                 titlesConfig.set(playerId.toString() + ".activeTitle", map);
             } else {
                 titlesConfig.set(playerId.toString() + ".activeTitle", null);
@@ -173,7 +197,11 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             String nickname = Bukkit.getOfflinePlayer(playerId).getName();
             titlesConfig.set(playerId.toString() + ".nickname", nickname != null ? nickname : "UnknownPlayer");
         }
-        try { titlesConfig.save(titlesFile); } catch (IOException e) { e.printStackTrace(); }
+        try {
+            titlesConfig.save(titlesFile); // 파일 저장
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     // === 템플릿 로드/저장 ===
@@ -324,12 +352,65 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             player.sendMessage(mm.deserialize("<aqua>/칭호 삭제 <white>[플레이어 닉네임]</white></aqua> <gray>- 해당 플레이어의 보유 목록에서만 삭제합니다. 카탈로그에는 영향을 주지 않습니다.</gray>"));
             player.sendMessage(mm.deserialize("<aqua>/칭호 효과설정</aqua> <gray>- 손에 든 칭호북에 효과를 저장합니다. 이후 그 북으로 장착 시 효과가 적용됩니다.</gray>"));
             player.sendMessage(mm.deserialize("<aqua>/칭호 리로드</aqua> <gray>- config.yml, message.yml, sound.yml을 리로드합니다.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 초기화 <white>[플레이어 닉네임]</white></aqua> <gray>- 특정 플레이어의 모든 칭호를 초기화합니다.</gray>"));
+            player.sendMessage(mm.deserialize("<aqua>/칭호 전체초기화</aqua> <gray>- 모든 플레이어의 모든 칭호를 초기화합니다.</gray>"));
             player.sendMessage(mm.deserialize("<white>=================================</white>"));
             return true;
         }
 
+        // /칭호 초기화 [플레이어 닉네임]
+        if (args[0].equalsIgnoreCase("초기화")) {
+            if (!player.hasPermission("titleplugin.reset")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.</red>"));
+                return true;
+            }
+            if (args.length != 2) {
+                sender.sendMessage(ChatColor.RED + "사용법: /칭호 초기화 [플레이어 닉네임]");
+                return true;
+            }
+
+            Player target = Bukkit.getPlayerExact(args[1]);
+            if (target == null) {
+                sender.sendMessage(ChatColor.RED + "플레이어를 찾을 수 없습니다: " + args[1]);
+                return true;
+            }
+
+            UUID targetId = target.getUniqueId();
+            playerTitles.remove(targetId);
+            activeTitles.remove(targetId);
+            updatePlayerDisplayName(target);
+            sender.sendMessage(ChatColor.GREEN + target.getName() + "의 모든 칭호가 초기화되었습니다.");
+            saveTitles();
+            return true;
+        }
+
+        // /칭호 전체초기화
+        if (args[0].equalsIgnoreCase("전체초기화")) {
+            if (!player.hasPermission("titleplugin.resetall")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.</red>"));
+                return true;
+            }
+            playerTitles.clear();
+            activeTitles.clear();
+
+            for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+                updatePlayerDisplayName(onlinePlayer);
+            }
+
+            sender.sendMessage(ChatColor.GOLD + "모든 플레이어의 칭호가 초기화되었습니다.");
+            saveTitles();
+            return true;
+        }
+
         // /칭호 열기
+        if(!player.isOp() && !player.hasPermission("titleplugin.use")) {
+            player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 플러그인을 사용할 권한이 없습니다.</red>")); return true;
+        }
         if (args[0].equalsIgnoreCase("열기")) {
+            if (!player.hasPermission("titleplugin.open")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.</red>"));
+                return true;
+            }
             openTitleGUI(player); return true;
         }
 
@@ -395,11 +476,19 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
 
         // /칭호 지급 [칭호명 or ID] [플레이어?] -> 책 지급
         if (args[0].equalsIgnoreCase("지급")) {
+            if (!player.hasPermission("titleplugin.give")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.</red>"));
+                return true;
+            }
             return handleGiveCommand(sender, args, false);
         }
 
         // /칭호 목록
         if (args[0].equalsIgnoreCase("목록")) {
+            if (!player.hasPermission("titleplugin.list")) {
+                player.sendMessage(mm.deserialize(TITLE_PREFIX + "<red>이 명령어를 사용할 권한이 없습니다.</red>"));
+                return true;
+            }
             openTemplateCatalogGUI(player); return true;
         }
 
@@ -607,6 +696,15 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             }
 
             ItemMeta meta = item.getItemMeta();
+
+            // 기존 로어를 가져옵니다.
+            List<String> lore = (meta.getLore() == null) ? new ArrayList<>() : new ArrayList<>(meta.getLore());
+
+            // 추가된 로어 처리: 획득 시간 맨 아래에 추가
+            lore.add(ChatColor.GRAY + "획득 시간: " + title.getAcquiredAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+            meta.setLore(lore);
+
             PersistentDataContainer data = meta.getPersistentDataContainer();
             data.set(new NamespacedKey(this, "title_name"), PersistentDataType.STRING, title.getName());
             data.set(new NamespacedKey(this, "title_display"), PersistentDataType.STRING, title.getDisplay());
@@ -680,7 +778,18 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
         if (name == null || display == null || typeStr == null) return;
 
         TitleData.Type type;
-        try { type = TitleData.Type.valueOf(typeStr); } catch (IllegalArgumentException e) { return; }
+        try {
+            type = TitleData.Type.valueOf(typeStr);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+
+        // 삭제된 템플릿인지 확인
+        if (templateId == null || !templates.containsKey(templateId)) {
+            player.sendMessage(ChatColor.RED + "이 칭호는 등록할 수 없습니다. 삭제된 칭호입니다.");
+            event.setCancelled(true);
+            return;
+        }
 
         TitleData title = new TitleData(name, display, type, templateId);
 
@@ -695,6 +804,7 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             event.setCancelled(true);
             return;
         }
+
         titles.add(title);
 
         if (title.getType() == TitleData.Type.GRADIENT) {
@@ -703,8 +813,11 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
             sendNormalTitleObtainedMessage(player, title);
         }
 
-        if (item.getAmount() > 1) { item.setAmount(item.getAmount() - 1); }
-        else { player.setItemInHand(new ItemStack(Material.AIR)); }
+        if (item.getAmount() > 1) {
+            item.setAmount(item.getAmount() - 1);
+        } else {
+            player.setItemInHand(new ItemStack(Material.AIR));
+        }
         event.setCancelled(true);
         updatePlayerDisplayName(player);
         saveTitles();
@@ -1288,6 +1401,13 @@ public class TitlePlugin extends JavaPlugin implements Listener, TabExecutor, Ta
                 completions.add("삭제");
                 completions.add("리로드");
                 completions.add("효과설정");
+                completions.add("전체초기화");
+                completions.add("초기화");
+            } else if (args.length == 2 && args[0].equalsIgnoreCase("초기화")) {
+                // 두 번째 인자에서 접속 중인 플레이어 목록 제공
+                completions = Bukkit.getOnlinePlayers().stream()
+                        .map(Player::getName)
+                        .collect(Collectors.toList());
             } else if (args.length == 2 && args[0].equalsIgnoreCase("삭제")) {
                 completions = Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
             } else if (args[0].equalsIgnoreCase("제작")) {
